@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Faithful copy of the ERP text extracts, loaded by ingest/ingest.py.
+      Every column is text; _source_file and _source_line point back to the original file row.
+    schema: raw
+    tables:
+      - name: sales
+        description: Invoice lines (one product on one invoice), stacked from sales_2023..2026.txt.
+      - name: orders
+        description: Invoice headers (one row per invoice), stacked from orders_2023..2026.txt.
+      - name: products
+        description: Product master, one row per SKU per branch (proddata -.txt).
+      - name: customers
+        description: Customer master, one row per customer account (custdata.txt).
+      - name: inventory
+        description: Inventory snapshot as of 09/08/2026, several rows per product and branch (invendata.txt).
+      - name: purchases
+        description: Purchase order lines, stacked from purch_2025..2026.txt.
+      - name: branches
+        description: Branch lookup.
+      - name: buylines
+        description: Buy line (brand / vendor line) lookup.
+      - name: gltypes
+        description: Product type lookup (EQ, PA, IS, OT).
+      - name: salespeople
+        description: Salesperson lookup.

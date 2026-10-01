@@ -1,0 +1,20 @@
+name: adh
+version: "1.0.0"
+profile: adh
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Identifies the operating company on every row. A second company would get its own
+  # staging models with its own company_id, feeding the same intermediate and mart models.
+  company_id: "hvac_nc"
+
+models:
+  adh:
+    staging:
+      +schema: staging
+      +materialized: view

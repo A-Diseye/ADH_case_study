@@ -1,0 +1,8 @@
+# Run dbt from this dbt/ folder; the path is relative to it.
+adh:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/adh.duckdb
+      threads: 4

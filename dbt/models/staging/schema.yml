@@ -1,0 +1,196 @@
+version: 2
+
+# Staging = one model per source file. Rename, type, trim, blank -> NULL. One row out per row in.
+# No joins and no business rules here (the only lookup is the GL-type list used for is_non_product).
+
+models:
+  - name: stg_sales
+    description: Invoice lines, one row per line in the sales extract (including legitimate identical duplicates).
+    columns:
+      - name: sales_line_id
+        description: Unique line key built from source file + line number (the extract has no line number).
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: invoice_no
+        description: Invoice number. Every line's invoice exists in the header file.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_orders'), field: invoice_no}
+      - name: bill_to_customer_id
+        description: Bill-to customer (who pays). This is the customer grain for analysis.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}
+      - name: ship_to_customer_id
+        description: Ship-to account (job site / location).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_products'), field: product_id}
+      - name: ship_date
+        description: Transaction date for all analysis.
+        data_tests: [not_null]
+      - name: quantity
+        data_tests: [not_null]
+      - name: ext_price
+        description: Extended line price (revenue). Negative for returns and credits.
+        data_tests: [not_null]
+      - name: ext_cost
+        description: Extended cost. Kept separately; not used for gross profit.
+      - name: ext_cogs
+        description: Extended cost of goods sold. Gross profit = ext_price - ext_cogs.
+        data_tests: [not_null]
+      - name: sales_source
+        description: CTR counter, INS inside, OUT outside.
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['CTR', 'INS', 'OUT']}
+      - name: customer_po
+        description: Free-text customer PO. Only used to label consignment line types, never to decide dollars.
+
+  - name: stg_orders
+    description: Invoice headers, one row per invoice.
+    columns:
+      - name: invoice_no
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: bill_to_customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}
+      - name: ship_date
+        data_tests: [not_null]
+      - name: item_total
+        description: Header total of line prices; lines are reconciled against this.
+        data_tests: [not_null]
+      - name: sales_source
+        description: CTR counter, INS inside, OUT outside, SR service charge / non-product.
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['CTR', 'INS', 'OUT', 'SR']}
+
+  - name: stg_customers
+    description: Customer master, one row per account (ship-to level). Bill-to rollup happens in intermediate.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: bill_to_customer_id
+        description: The account this one bills to (can be itself).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}
+      - name: salesperson_id
+        description: Assigned salesperson (used in the customer mart).
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_salespeople'), field: salesperson_id}
+              config: {severity: warn}
+      - name: is_inactive
+        description: True when the master marks the account inactive (blank treated as active).
+        data_tests: [not_null]
+
+  - name: stg_products
+    description: Product master at SKU x branch grain (every SKU repeated for each branch).
+    columns:
+      - name: product_branch_id
+        description: Product ID + branch ID.
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: product_id
+        data_tests: [not_null]
+      - name: branch_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_branches'), field: branch_id}
+      - name: buy_line
+        description: Brand / vendor line. A few codes are missing from the buy-line lookup.
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_buylines'), field: buy_line}
+              config: {severity: warn}
+      - name: gl_type
+        description: Product type code (EQ/PA/IS/OT); accounting code numbers for non-products.
+      - name: is_non_product
+        description: True for accounting entries and test SKUs whose GL type is not in the lookup.
+        data_tests: [not_null]
+
+  - name: stg_inventory
+    description: Inventory snapshot as of 09/08/2026, several rows per product and branch (bin locations).
+    columns:
+      - name: inventory_row_id
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_products'), field: product_id}
+      - name: branch_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_branches'), field: branch_id}
+      - name: gl_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['EQ', 'PA', 'IS', 'OT']}
+      - name: onhand_qty
+        data_tests: [not_null]
+
+  - name: stg_purchases
+    description: Purchase order lines, 2025-2026.
+    columns:
+      - name: purchase_line_id
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_products'), field: product_id}
+      - name: received_date
+        data_tests: [not_null]
+
+  - name: stg_branches
+    description: Branch lookup.
+    columns:
+      - name: branch_id
+        data_tests: [unique, not_null]
+
+  - name: stg_buylines
+    description: Buy line lookup.
+    columns:
+      - name: buy_line
+        data_tests: [unique, not_null]
+
+  - name: stg_gltypes
+    description: Product type lookup.
+    columns:
+      - name: gl_type
+        data_tests:
+          - unique
+          - not_null
+          - accepted_values:
+              arguments: {values: ['EQ', 'PA', 'IS', 'OT']}
+
+  - name: stg_salespeople
+    description: Salesperson lookup. One person can have several IDs.
+    columns:
+      - name: salesperson_id
+        data_tests: [unique, not_null]

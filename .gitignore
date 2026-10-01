@@ -9,3 +9,5 @@ data/
 target/
 dbt_packages/
 logs/
+# dbt local user id
+.user.yml
