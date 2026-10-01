@@ -1,0 +1,11 @@
+# Raw source data (large; supplied separately)
+data/
+# Python virtual environment
+.venv/
+# DuckDB database files
+*.duckdb
+*.duckdb.wal
+# dbt build output
+target/
+dbt_packages/
+logs/
