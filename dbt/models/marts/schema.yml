@@ -1,0 +1,125 @@
+version: 2
+
+# Marts = business-ready tables for analysis and the app. Built only from intermediate models,
+# so every business rule comes from one place.
+
+models:
+  - name: mart_sales_detail
+    description: >
+      One row per invoice line plus one non-product row per header-only invoice; totals reconcile to
+      the invoice headers. Money: revenue / cogs / gross_profit (product lines), charge_amount and
+      adjustment_amount (header-only). Use is_financial for money totals, is_purchase for buying activity.
+    columns:
+      - name: sales_line_id
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: row_source
+        data_tests:
+          - accepted_values:
+              arguments: {values: [product_line, header_only]}
+      - name: ship_date
+        description: Transaction date.
+        data_tests: [not_null]
+      - name: bill_to_customer_id
+        description: The customer (bill-to).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('mart_products'), field: product_id}
+      - name: line_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [sale, consignment_billing, return_credit, no_charge, consignment_transfer,
+                         payment_record, stock_transfer, other_zero_dollar, service_charge, surcharge_fee,
+                         prebuy_prepayment, rebate_loyalty, bad_debt, ar_adjustment, payment_correction,
+                         other_adjustment]
+      - name: reconciliation_status
+        description: matched / variance / header_only for the invoice this row belongs to.
+        data_tests: [not_null]
+      - name: units
+        description: Quantity on financial lines; 0 for $0 stock movements.
+      - name: margin_pct
+        description: gross_profit / revenue (NULL when revenue is 0).
+      - name: _source_file
+        description: >
+          Original file the row came from: sales_*.txt for product lines, orders_*.txt (the invoice
+          header) for header-only rows. With _source_line, every row traces back to one source line.
+        data_tests: [not_null]
+
+  - name: mart_customers
+    description: >
+      One row per bill-to customer, including inactive and never-purchased. Recency, last 12 months vs
+      prior 12 months, lifetime value, buying rhythm and category mix. Windows roll from as_of_date.
+    columns:
+      - name: customer_id
+        description: Bill-to customer ID.
+        data_tests: [unique, not_null]
+      - name: company_id
+        data_tests: [not_null]
+      - name: purchase_status
+        description: never_purchased, active_last_12m, or lapsed (bought before, not in the last 12 months).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [never_purchased, active_last_12m, lapsed]}
+      - name: sales_last_12m
+        description: Product revenue (net of returns) in the 12 months up to as_of_date.
+        data_tests: [not_null]
+      - name: avg_days_between_purchases
+        description: Average gap between days with a purchase; the customer's normal buying rhythm.
+      - name: is_house_account
+        description: Assigned salesperson is a system account (HSE, WEB...), not a real rep.
+      - name: lifetime_charges
+        description: Header-only charges (service charges, surcharges, fees). Not in sales.
+      - name: lifetime_adjustments
+        description: Header-only credits and prepayments (rebates, bad debt, prebuys...). Not in sales.
+
+  - name: mart_products
+    description: >
+      One row per SKU. Observed price and cost (the master has none), last-12-month and lifetime sales,
+      stock on hand, and the active / currently stocked flags.
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: is_active
+        description: Sold in the last 12 months (rolling from as_of_date).
+        data_tests: [not_null]
+      - name: is_currently_stocked
+        description: Warehouse stock on hand in at least one branch (snapshot).
+        data_tests: [not_null]
+
+  - name: mart_inventory_by_branch
+    description: Stock per product and branch, with warehouse vs consignment split and bin locations.
+    columns:
+      - name: product_branch_id
+        data_tests: [unique, not_null]
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('mart_products'), field: product_id}
+      - name: available_qty
+        description: Warehouse stock minus quantity already committed to orders.
+
+  - name: mart_customer_years
+    description: >
+      One row per purchasing customer per calendar year (zeros included). full_year_* for the trend
+      across complete years; same_period_* (Jan 1 to the as-of month/day, every year) for judging the
+      unfinished current year fairly against earlier years.
+    columns:
+      - name: customer_year_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: is_partial_year
+        description: True for the as-of year, which is not complete. Don't compare its full_year_* to complete years.
+        data_tests: [not_null]

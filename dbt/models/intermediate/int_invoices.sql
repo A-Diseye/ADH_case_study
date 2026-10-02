@@ -43,7 +43,10 @@ select
         when l.invoice_no is null                       then 'header_only'
         when abs(l.line_price_total - o.item_total) <= 0.01 then 'matched'
         else 'variance'
-    end                                                 as reconciliation_status
+    end                                                 as reconciliation_status,
+
+    o._source_file,                                     -- the header's row in orders_*.txt
+    o._source_line
 from {{ ref('stg_orders') }} as o
 left join line_totals as l
     on l.invoice_no = o.invoice_no

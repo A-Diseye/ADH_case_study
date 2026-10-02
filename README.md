@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 in progress. Ingest, staging and intermediate are built and tested; the marts are next. Sections for Parts 2-4 describe the planned approach.
+> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (150+ dbt tests). Sections for Parts 2-4 describe the planned approach.
 
 ---
 
@@ -30,7 +30,7 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 
 - **Each layer has one job.** Ingest only makes the files loadable, staging only cleans one source at a time, intermediate holds the business rules, and marts present results. When a number looks wrong, the layer tells you where to look: a bad date is a staging problem; a consignment line counted as a sale is an intermediate problem.
 - **Business rules are written once.** Rules such as "what counts as a sale" live in intermediate and are reused by every mart and by the app.
-- **Raw is a faithful copy.** Everything loads as text; types are cast in staging. Ingest adds `_source_file` and `_source_line` to every row so any value can be traced back to the original file line.
+- **Raw is a faithful copy.** Everything loads as text; types are cast in staging. Ingest adds `_source_file` and `_source_line` to every row, and they are carried through to the marts, so any row (including header-only rows, which point to their invoice header) can be traced back to the original file line.
 - **Staging is materialized as tables, not views.**
   - *Fail early, in the right layer:* every cast runs at build time, so a bad value in any column stops the build at staging instead of surfacing later in whichever model first reads that column.
   - *Faster downstream:* intermediate reads the sales lines several times; with a table the trimming, text repair and casting on 1M+ rows happens once, not on every read.
@@ -59,9 +59,12 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 | | `int_inventory_by_branch` | Product x branch: warehouse, consignment and other stock |
 | | `int_salespeople` | Salesperson ID mapped to a person, system accounts flagged |
 | | `int_buylines` | Buy-line code with high-confidence near-duplicates mapped |
-| Marts *(planned)* | `mart_sales_detail` | Invoice line, plus header-only invoices as non-product rows |
-| | `mart_customers` | Bill-to customer |
-| | `mart_products` | SKU (with a separate branch-level inventory table) |
+| | `int_reporting_dates` | One row: latest date in the data and the rolling 12-month window boundaries |
+| Marts | `mart_sales_detail` | Invoice line (1.06M) plus one non-product row per header-only invoice (3,261); names, categories, line type, revenue / cost / gross profit / margin, charges and adjustments, reconciliation flag |
+| | `mart_customers` | Bill-to customer (3,372, incl. never purchased): recency, last 12 months vs prior 12, lifetime sales and gross profit, buying rhythm, average order value, categories bought, charges and adjustments |
+| | `mart_customer_years` | Customer x calendar year (zeros included): full-year sales and gross profit for the trend across complete years, plus same-period (Jan 1 to the as-of day) for judging the unfinished year fairly |
+| | `mart_products` | SKU (159K): type, brand, sell group, observed price and cost, last-12-month and lifetime sales, stock on hand, active and currently-stocked flags |
+| | `mart_inventory_by_branch` | Product x branch: warehouse, available, consignment stock and bin locations |
 
 ## Important assumptions
 
@@ -71,12 +74,15 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 - **Line types.** Financial lines: sale, consignment billing, return/credit, no-charge. Non-financial ($0/$0): consignment transfer, stock transfer, payment record, other.
 - **Returns and credits** (negative price) are netted against sales and flagged.
 - **Header-only invoices are never product revenue.** They are split into `charge_amount` (service charges, surcharges, fees) and `adjustment_amount` (rebates, AR adjustments, bad debt, prebuys, payment corrections), following how accounting usually treats them. Prebuys are customer deposits: the goods are invoiced later as normal sales, so counting the prebuy would double count.
-- **Lines tie to the invoice header within 1 cent** (rounding).
-- **Available stock = warehouse stock only.** Consignment stock sitting at customer sites is shown separately and is not available to ship.
+- **Lines tie to the invoice header within 1 cent** (rounding). On the 1,527 invoices where lines exceed the header, the lines are kept and the invoice is flagged (`has_invoice_variance`) until ADH confirms which side is right.
+- **Available stock = warehouse stock minus quantity already committed to orders.** Consignment stock sitting at customer sites and the small undocumented stock types (F/R/T/L/Z, under 0.2% of units) are shown separately and not counted as available.
 - **Salespeople:** IDs with the same name (ignoring case) are one person, represented by the most-used ID; house/web/admin IDs are flagged as system accounts.
 - **Buy-line near-duplicates:** only high-confidence pairs (identical lookup descriptions) are merged; the raw code is always kept.
 - **Identical duplicate lines are legitimate** (verified against invoice header totals) and are kept.
-- **Transaction date = ship date.** "Recent" windows roll back from the latest date in the data, never hardcoded.
+- **Transaction date = ship date.** "Recent" windows roll back from the latest date in the data (2026-09-08), never hardcoded, and are defined once in `int_reporting_dates`.
+- **The bill-to on the invoice is the customer for transactions**; names and attributes come from the customer master. Related bill-to accounts (e.g. a separate tax-exempt account for the same business) are treated as separate customers. Salesperson = the master's assigned salesperson; customers with none or a house account show as unassigned.
+- **Rebates and other adjustments are not netted against a customer's sales** when measuring their value; they are kept in a separate column.
+- **Active product = sold in the last 12 months**; "currently stocked" (warehouse stock on hand) is a separate flag. The product master has no price or cost, so the product mart shows observed price and COGS from the last 12 months of sales.
 - **Blank `Inactive` flag = active customer** (gives 727 inactive).
 - **Non-products:** 157 SKUs whose product type is not EQ/PA/IS/OT (accounting entries and one test SKU) are flagged, not deleted.
 
@@ -95,13 +101,14 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 9. **Two cost columns** with different meanings (see assumptions).
 10. **Customer payments are recorded as $0 sales lines** on an "ONLINE PAYMENT" SKU (3,871 lines). Classified as payment records, not sales.
 11. **Inventory rows are stock buckets:** our warehouse (per bin) vs consignment stock at customer sites (coded C + customer ID). Summing them all would overstate what can be shipped.
+12. **A third of purchasing customers have no real assigned rep** (no salesperson or a house account, 34% of lifetime sales).
 
 ## Opportunity methodology *(Part 2, planned)*
 
 **Opportunity = estimated gross profit a customer used to give us and no longer does, weighted by how recoverable it is.**
 
 1. Count real sales only (no consignment transfers or service charges).
-2. For each customer, compare a baseline run-rate with recent spend, year over year where possible to respect HVAC seasonality.
+2. For each customer, compare recent spend with their history using only like-for-like periods, to respect HVAC seasonality: the last 12 months vs the prior 12, the trend across complete calendar years, and the current unfinished year vs the same dates (Jan 1 to the as-of day) in earlier years. A partial year is never compared with a full one.
 3. Flag sharp drops, customers quiet for longer than their normal buying rhythm, and categories they stopped buying.
 4. Lost gross profit = (baseline - recent) x margin.
 5. Weight by recoverability signals (still buying something, consistent salesperson, recency).
@@ -127,7 +134,8 @@ cd dbt && dbt build
 
 ## Next steps with more time
 
-- Confirm open questions with ADH: the meaning of `Ext_Cost`, why ~1.5K invoices have lines that exceed the header, whether a structured consignment flag exists in the ERP, how prebuy deposits are applied, and the meaning of the small inventory stock types (F/R/T/L/Z).
+- Confirm open questions with ADH (sent; defaults above are used until answered): who owns accounts with no salesperson or a house account, `Ext_Cost` vs `Ext_COGS`, whether related bill-to accounts are one customer, whether rebates should reduce customer value, and why ~1.5K invoices have lines that exceed the header. Also: whether a structured consignment flag exists in the ERP, how prebuy deposits are applied, the meaning of the small inventory stock types (F/R/T/L/Z), and the two undecided buy-line pairs.
+- Seasonally adjusted projection of each customer's current year: use the share of annual buying they usually complete by the as-of date to project the full year, so heating-season buyers are not under-rated in September.
 - Derived product categories from descriptions/keywords (the source category fields are nearly empty).
 - Salesperson and buy-line mapping tables reviewed with the business.
 - Incremental loads instead of full reloads, and scheduled runs.

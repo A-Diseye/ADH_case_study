@@ -55,9 +55,11 @@ marts schema
 
 | Mart | Grain | Key contents |
 |---|---|---|
-| `mart_sales_detail` | One row per invoice line | Date, invoice, customer, branch, salesperson, SKU, category, brand; revenue, cost, gross profit, margin %, units; line type (sale / consignment billing / consignment transfer / return-credit / service charge / other $0); flag for whether it counts as a real sale; company_id |
+| `mart_sales_detail` | One row per invoice line, plus one non-product row per header-only invoice | Date, invoice, customer, branch, salesperson, SKU, category, brand; revenue, cost, gross profit, margin %, units; line type (sale / consignment billing / return-credit / no-charge / consignment transfer / stock transfer / payment record / header-only charge and adjustment types); is_financial and is_purchase flags; charge_amount and adjustment_amount; invoice reconciliation status; company_id |
 | `mart_customers` | One row per customer | Name, branch, salesperson, type, active flag; first/last purchase date, days since last purchase, sales in last 12 months vs prior 12, lifetime sales and gross profit, invoice count, purchase frequency, average order value, categories bought |
-| `mart_products` | One row per SKU | Description, brand, product type (equipment/parts/supplies), cost and price, units and revenue (last 12 months, lifetime), last sold date, on-hand quantity, "active" flag (sold recently and/or stocked) |
+| `mart_customer_years` *(added during build)* | One row per customer per calendar year | Full-year sales and gross profit (long-term trend across complete years) and same-period sales (Jan 1 to the as-of day, every year) to judge the unfinished year fairly; zeros included |
+| `mart_products` | One row per SKU | Description, brand, product type (equipment/parts/supplies), cost and price, units and revenue (last 12 months, lifetime), last sold date, on-hand quantity, "active" flag (sold recently and/or stocked). Price and cost are observed from the last 12 months of sales (the product master has none) |
+| `mart_inventory_by_branch` | One row per product per branch | Warehouse, available (warehouse minus committed), consignment and other stock; bin locations |
 
 **Decision made (Customer grain):** the **bill-to** customer as the customer for opportunity analysis, because that is who pays and who the relationship belongs to, while keeping ship-to (job site or location) on the sales detail. Correction from earlier: consignment does NOT explain most of the ship-to/bill-to split (27% of ordinary priced sales still differ). The bigger cause is that one business often has several account IDs (for example 4 Seasons Heating & Air is ship-to 299 and bill-to 298), which makes bill-to the right grain even more clearly.
 
@@ -67,13 +69,17 @@ marts schema
 
 Steps:
 1. Only real sales count (no consignment transfers or service charges).
-2. For each active customer, compute their baseline (trailing run-rate before the decline) and their recent spend.
+2. For each customer, compare recent spend with their history using only like-for-like periods (a partial year is never compared with a full one):
+   - **Long-term trend:** full calendar years (2023 -> 2024 -> 2025).
+   - **This year so far:** the current year vs the same dates (Jan 1 to the as-of day) in earlier years; seasonality cancels out.
+   - **Most recent full year:** last 12 months vs prior 12 (rolling from the latest date in the data).
+   Combined: long-term decline + behind this year = strongest; long-term decline but on track = possibly recovering (lower); steady/growing but behind this year = early warning (modest, Q4 could recover); steady/growing and on track = no flag. Weighted by gross-profit dollars.
 3. Flag customers whose recent spend dropped sharply, who have gone quiet longer than their normal buying rhythm, or who stopped buying categories they used to buy.
 4. Estimated lost gross profit = (baseline - recent) x margin.
 5. Recoverability adjustments: still buying something (good sign), has a consistent salesperson, recency of last purchase, etc.
 6. Final priority score = lost gross profit x recoverability. Each row gets a plain-English reason ("Bought $4.2K/month through March, nothing since June; stopped buying refrigerant and copper fittings").
 
-**Weaknesses to state openly:** seasonality (HVAC is seasonal, so we compare year-over-year where possible); we can't tell whether a customer left or simply had no projects; no competitor or win/loss data; consignment and ship-to handling affects customer history; the baseline window is a judgment call.
+**Weaknesses to state openly:** seasonality (handled by comparing like-for-like periods only; a per-customer seasonal projection of the current year is deferred to next steps); we can't tell whether a customer left or simply had no projects; no competitor or win/loss data; consignment and ship-to handling affects customer history; the baseline window is a judgment call.
 
 **Data that would help:** quote and lost-quote data, customer job pipeline, weather data, competitor pricing, contact history.
 
@@ -104,7 +110,7 @@ For each flagged customer, list the specific products they stopped buying, ranke
 - Product category hierarchy may be thin (commodity and select-code fields looked blank in samples). Needs checking in the Products mart.
 - A live follow-up change request will test how easily the model adapts (for example, a new definition of opportunity or a new operating company), which is why business rules live in one layer.
 
-## 11. Decisions log (agreed with Ritu)
+## 11. Decisions log (1-12 agreed with Ritu; 13+ made with Ayush during the build)
 
 | # | Decision | Notes |
 |---|---|---|
@@ -120,9 +126,26 @@ For each flagged customer, list the specific products they stopped buying, ranke
 | 10 | App shows a product-type reference table (for example PA = Parts -> what it includes) | Idea from Ritu. Can later feed derived categories |
 | 11 | Buy-line near-duplicates: keep a mapping table with confidence levels, apply only high-confidence pairs | Revisit while working with the data; a good challenge to discuss in the review |
 | 12 | Consignment rule (validated): money logic uses price and cost, not text. A line is financial if price or cost is non-zero; $0/$0 lines are non-financial stock movements, excluded from units, frequency and last-purchase metrics but kept in the data. PO text is used only to label the type (consignment transfer / consignment billing / branch stock transfer / other), via a pattern list that tolerates typos | Robust because it does not depend on messy text; text only affects labels, never dollars |
+| 13 | Staging models are tables, not views | Every cast runs at build time, so bad values fail in staging; later layers read typed data once. Cost: disk space and a few seconds |
+| 14 | Identical duplicate lines are kept; no `dup_count` column | No metric used it. The evidence (header totals match with duplicates on 911 of 933 invoices) is documented in the model |
+| 15 | Lines tie to the header within 1 cent | 377 invoices differ by exactly $0.01 (rounding). Gives 132,753 matched / 1,527 variance / 3,261 header-only |
+| 16 | The bill-to on the invoice is the customer for transactions; names and attributes come from the customer master | 3 accounts are billed directly on invoices though the master says they bill elsewhere (tax-exempt twins); added to the customer mart (3,372 rows) |
+| 17 | Reporting windows are defined once (`int_reporting_dates`), rolling from the latest ship date (2026-09-08) | Last 12 months = 2025-09-09 to 2026-09-08; prior 12 = the 12 months before. Start dates exclusive so no day is counted twice |
+| 18 | Opportunity comparisons are like-for-like only: full calendar years, same period each year, rolling 12 vs prior 12 (see section 5) | Comparing partial 2026 with full 2025 turns +21% growth into -12%. Seasonal projection deferred (time budget) |
+| 19 | Available stock = warehouse stock (stock_type S) minus committed; consignment stock at customer sites (C + customer ID) is shown separately | Summing all inventory rows would overstate what can ship. Warehouse stock can sit in several bins; all bins listed |
+| 20 | Salesperson IDs with the same name (ignoring case) are one person, represented by the most-used ID; system accounts (HSE, WEB, ADMIN...) are a reviewable seed list | KEITH / KEITHS kept separate (names differ) |
+| 21 | Product price and cost are observed: average unit price and COGS over the last 12 months of sales, plus inventory unit cost | The product master has no price or cost fields |
 
-## 12. Open questions to raise in the review
-- Why 1,527 invoices have line totals above the header (header counts one more line than the lines file contains).
-- Which buy-line near-duplicates are true duplicates.
+## 12. Open questions
+Sent to Andrew (ADH) on 2026-10-02, each with the default we use until answered:
+- Account ownership for customers with no salesperson or HOUSE (546 of 933 purchasers, 34% of sales). Default: master assignment, rest unassigned.
+- `Ext_Cost` vs `Ext_COGS` for gross profit. Default: COGS.
+- Related bill-to accounts (e.g. 7611 / 7612 "(nontax)") as one customer? Default: separate.
+- Should rebates reduce customer value when ranking? Default: kept separate, not netted.
+- Why 1,527 invoices have line totals above the header (header counts one more line than the lines file contains). Default: keep lines, flag invoices.
+
+Still open, to raise in the review:
+- How prebuy deposits are applied (AR, not in the extract).
+- Meaning of the small inventory stock types (F/R/T/L/Z).
+- Buy-line near-duplicates: the 4 high-confidence pairs are applied; still undecided are FLANSDER / FLANDERS (likely) and MTSUBIS / MITSUBIS (uncertain).
 - Confirm with ADH that $0 consignment transfers + priced consignment billing is how they record consignment (data strongly supports it), and whether a structured consignment flag exists in the ERP that the extract left out.
-- Product category data is sparse in the source.

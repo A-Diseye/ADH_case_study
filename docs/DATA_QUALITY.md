@@ -47,3 +47,11 @@ Collected layer by layer. These feed the README and the review talking points.
 | 28 | **Buy-line near-duplicates**: of the 4 high-confidence pairs, only STRMQU/STROM both have products; AMA and WOLVRN have no products at all. | Small effect. | Seed with confidence levels; only `high` applied. |
 
 | 29 | **Prebuys have no visible draw-down.** 4 Seasons and Performance Heating prepaid $787K on 2024-04-15 ("PreBuy Credit", positive amounts); no later offsetting credit exists in sales or headers, and their equipment is invoiced normally through 2024. "Keith Ox Credit" (+$187K, customer 298, 2023-04-19) fits the same pattern (likely the 2023 prebuy) but is not labelled as one. | Counting a prebuy as revenue would double count it against the later equipment invoices, and spike April (e.g. Performance Heating April 2024 vs 2025 looks like -84% instead of -42%). | Prebuys sit in `adjustment_amount`; the sale is counted once, when the product ships. Deposit application is AR, not in this extract. |
+## Marts
+
+| # | Finding | Impact | Handling |
+|---|---|---|---|
+| 30 | **Bill-to on invoices vs customer master disagree for 3 accounts** (e.g. 7612 "Fisher's Mechanical HVAC (nontax)" is billed directly on invoices, but the master says it bills to 7611). They look like separate tax-exempt accounts. | 114 lines would have no customer row if the mart used only the master's bill-to list. | The bill-to on the invoice is the customer for transactions; the customer mart includes master bill-tos plus these 3 (3,372 rows). |
+| 31 | **546 of 933 purchasing customers have no real assigned rep**: 301 have no salesperson in the master and 245 are assigned to HOUSE/system accounts ($38.8M lifetime sales, 34%), including the largest customer (4 Seasons). Their sales lines mostly have no outside rep either. | A salesperson filter in the app would leave a third of customers unassigned. | Decision 5 kept (master assignment); `is_house_account` flags system accounts. Open question for ADH. |
+| 32 | **Sell group varies for 35 of 11,562 sold SKUs** across their lines. | | Most common sell group per SKU in the product mart. |
+| 33 | **The product master has no price or cost fields.** | "Cost and price" must be derived. | Product mart shows observed average unit price and COGS over the last 12 months (from sales) and the inventory unit cost. |

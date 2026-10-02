@@ -71,5 +71,8 @@ select
          then header_item_total else 0 end              as adjustment_amount,
     header_cogs_total                                   as header_cogs,       -- $0 on every header-only invoice
 
-    header_item_total <> 0                              as is_financial
+    header_item_total <> 0                              as is_financial,
+
+    _source_file,                                       -- the invoice header's row in orders_*.txt
+    _source_line
 from labelled
