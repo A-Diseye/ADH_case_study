@@ -123,3 +123,36 @@ models:
       - name: is_partial_year
         description: True for the as-of year, which is not complete. Don't compare its full_year_* to complete years.
         data_tests: [not_null]
+
+  - name: mart_opportunities
+    description: >
+      Part 2. One row per customer who has ever purchased, scored for how much lost gross profit we
+      could recapture: priority_score = estimated lost GP x winnability x recoverability. Flagged
+      customers are ranked (opportunity_rank 1 = largest) with a plain-English reason.
+      Spec: docs/OPPORTUNITY_SPEC.md; thresholds and weights are dbt vars.
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: opportunity_type
+        description: early_warning (steady before, behind/quiet now), long_term_decline (declining and still behind/quiet), recovering (declined, on track this year).
+        data_tests:
+          - accepted_values:
+              arguments: {values: [early_warning, long_term_decline, recovering]}
+      - name: is_flagged
+        description: Has an opportunity type and estimated lost GP of at least opp_min_lost_gp.
+        data_tests: [not_null]
+      - name: priority_score
+        description: Expected recoverable gross profit; the ranking measure.
+        data_tests: [not_null]
+      - name: reason
+        description: Plain-English explanation built from the signals that fired.
+      - name: is_long_term_decline
+        data_tests: [not_null]
+      - name: is_behind_this_year
+        data_tests: [not_null]
+      - name: is_gone_quiet
+        data_tests: [not_null]

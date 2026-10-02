@@ -32,3 +32,8 @@
 {% macro to_amount(column) -%}
     cast({{ column }} as decimal(18, 4))
 {%- endmacro %}
+
+-- Whole dollars with thousands separators for reason text: 1234.5 -> $1,235, -250 -> -$250
+{% macro fmt_money(column) -%}
+    case when {{ column }} < 0 then '-$' else '$' end || format('{:,}', abs(round({{ column }}))::bigint)
+{%- endmacro %}

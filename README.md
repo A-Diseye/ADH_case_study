@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (150+ dbt tests). Sections for Parts 2-4 describe the planned approach.
+> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (156 dbt tests). Part 2 (opportunity model) built. Sections for Parts 2-4 describe the planned approach.
 
 ---
 
@@ -58,11 +58,13 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 | | `int_products` | SKU (159K), with product type, brand (raw and mapped) and non-product flag |
 | | `int_inventory_by_branch` | Product x branch: warehouse, consignment and other stock |
 | | `int_salespeople` | Salesperson ID mapped to a person, system accounts flagged |
+| | `int_customer_brand_changes` | Customer x brand: gross profit prior 12 vs last 12 months; brands they stopped buying |
 | | `int_buylines` | Buy-line code with high-confidence near-duplicates mapped |
 | | `int_reporting_dates` | One row: latest date in the data and the rolling 12-month window boundaries |
 | Marts | `mart_sales_detail` | Invoice line (1.06M) plus one non-product row per header-only invoice (3,261); names, categories, line type, revenue / cost / gross profit / margin, charges and adjustments, reconciliation flag |
 | | `mart_customers` | Bill-to customer (3,372, incl. never purchased): recency, last 12 months vs prior 12, lifetime sales and gross profit, buying rhythm, average order value, categories bought, charges and adjustments |
 | | `mart_customer_years` | Customer x calendar year (zeros included): full-year sales and gross profit for the trend across complete years, plus same-period (Jan 1 to the as-of day) for judging the unfinished year fairly |
+| | `mart_opportunities` | Part 2: customer, scored and ranked by expected recoverable gross profit, with signals and a plain-English reason |
 | | `mart_products` | SKU (159K): type, brand, sell group, observed price and cost, last-12-month and lifetime sales, stock on hand, active and currently-stocked flags |
 | | `mart_inventory_by_branch` | Product x branch: warehouse, available, consignment stock and bin locations |
 
@@ -103,16 +105,27 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 11. **Inventory rows are stock buckets:** our warehouse (per bin) vs consignment stock at customer sites (coded C + customer ID). Summing them all would overstate what can be shipped.
 12. **A third of purchasing customers have no real assigned rep** (no salesperson or a house account, 34% of lifetime sales).
 
-## Opportunity methodology *(Part 2, planned)*
+## Opportunity methodology (Part 2)
 
-**Opportunity = estimated gross profit a customer used to give us and no longer does, weighted by how recoverable it is.**
+**Question:** which existing customers represent the largest opportunities to recapture lost sales?
 
-1. Count real sales only (no consignment transfers or service charges).
-2. For each customer, compare recent spend with their history using only like-for-like periods, to respect HVAC seasonality: the last 12 months vs the prior 12, the trend across complete calendar years, and the current unfinished year vs the same dates (Jan 1 to the as-of day) in earlier years. A partial year is never compared with a full one.
-3. Flag sharp drops, customers quiet for longer than their normal buying rhythm, and categories they stopped buying.
-4. Lost gross profit = (baseline - recent) x margin.
-5. Weight by recoverability signals (still buying something, consistent salesperson, recency).
-6. Each flagged customer gets a plain-English reason.
+**Opportunity = estimated gross profit a customer used to give us and no longer does.** Because the question is about what we can *recapture*, customers are ranked by **expected recoverable gross profit**:
+
+> priority score = estimated lost gross profit x winnability x recoverability
+
+1. **Real sales only:** product lines with money (no consignment transfers, payments or header-only charges and adjustments).
+2. **Three signals, all like-for-like** (a partial year is never compared with a full one):
+   - **Long-term decline:** gross profit fell two complete years running (2023 > 2024 > 2025). One down year can be a blip; two is a trend.
+   - **Behind this year:** 2026 gross profit from Jan 1 to the as-of day is 10%+ (and $1K+) below the same dates in 2025. Seasonality cancels out because both periods cover the same months. In past years, customers 10-15% behind by September ended the year down 83% of the time, so acting early is justified.
+   - **Gone quiet:** no purchase for more than 4x the customer's own normal gap between purchases (5+ invoices), or none in 12 months. In history, gaps over 4x happen in only 1.8% of normal buying, so most customers past 4x are genuinely slipping.
+3. **Estimated lost gross profit** = the largest of the three signal estimates (not the sum; they often describe the same drop). Flagged when $1,000 or more.
+4. **Winnability** by opportunity type: *early warning* (steady before, slipping now) 1.0, the easiest to save; *long-term decline* still slipping 0.7, likely already moved business elsewhere; *recovering* (declined, on track this year) 0.4.
+5. **Recoverability** by recency relative to the customer's own rhythm: within 2x their normal gap 1.0, 2-4x 0.8, beyond or lapsed 0.5.
+6. **Reason:** each flagged customer gets a plain-English explanation, including brands they stopped buying, e.g. *"2026 so far is 62% behind last year through Sep 8 ($50,605 vs $132,581 gross profit); Stopped buying AIREFORCE, Warren Technologies, Weitron"*.
+
+**Result:** 200 customers flagged, about $2.86M estimated lost gross profit and $1.71M expected recoverable (140 early warnings, 35 long-term decliners, 25 recovering). Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
+
+**Weaknesses:** a drop may mean fewer projects rather than a lost customer (no quote, pipeline or competitor data); one large past project can look like a decline; winnability weights are a judgement because there is no outreach-outcome data; related accounts are scored separately until ADH confirms otherwise.
 
 ## Part 4: win-back call sheet *(planned)*
 

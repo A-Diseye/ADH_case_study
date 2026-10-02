@@ -7,7 +7,7 @@ An interview case study for ADH (Advantage Distribution Holdings): turn raw ERP 
 
 Flow: raw ERP text files -> DuckDB raw -> dbt staging -> dbt intermediate -> dbt marts -> opportunity analysis -> Streamlit app.
 
-**Current scope: Part 1 only** (ingest, staging, intermediate, the three marts, tests). Keep Parts 2-3 in mind when designing the marts, but don't build them yet.
+**Current scope: Part 2** (customer opportunity model). Part 1 is complete (ingest, staging, intermediate, marts, tests). Build Part 2 on top of the marts; keep Part 3 (the app) in mind but don't build it yet. Five data questions are pending with ADH (see docs/PLAN.md section 12); use the stated defaults until answered.
 
 ## How to work with me
 - I (Ayush) will present and defend this code in a 60-minute review. Understanding matters more than speed.
