@@ -80,6 +80,8 @@ select
     c.customer_name,
     c.city,
     c.state,
+    c.phone,
+    c.email,
     c.customer_type,
     c.customer_class,
     c.home_branch_id,

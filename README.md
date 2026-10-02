@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (170+ dbt tests). Part 2 (opportunity model) built. Sections for Parts 2-4 describe the planned approach.
+> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (170+ dbt tests). Part 2 (opportunity model) built. Part 3 (app) built. Sections for Parts 2-4 describe the planned approach.
 
 ---
 
@@ -127,6 +127,19 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 
 **Weaknesses:** a drop may mean fewer projects rather than a lost customer (no quote, pipeline or competitor data); one large past project can look like a decline; winnability weights are a judgement because there is no outreach-outcome data; related accounts are scored separately until ADH confirms otherwise.
 
+## The application (Part 3)
+
+A Streamlit app (`app/app.py`) for salespeople and managers. It only reads the marts, so all business logic stays in dbt.
+
+- **Ranked list** of flagged customers with filters (salesperson, branch, opportunity type, minimum recoverable gross profit), headline totals, and a CSV download of the filtered list.
+- **Why flagged:** a plain-English reason on every row, plus a "How the ranking works" section explaining the score.
+- **Customer detail:** contact details and rep, last purchase vs their normal rhythm, last 12 months vs prior 12, this year vs the same dates last year, gross profit by month, by year, brands with the biggest drops, and recent invoices.
+- **Product type reference:** what each product type includes, with its top brands.
+
+| Ranked list | Customer detail |
+|---|---|
+| ![Ranked list](docs/screenshots/ranked_list.png) | ![Customer detail](docs/screenshots/customer_detail.png) |
+
 ## Part 4: win-back call sheet *(planned)*
 
 For each flagged customer, list the specific products they stopped buying, ranked by the profit they used to generate, with current stock on hand by branch. A salesperson opens the app and knows exactly what to ask about and whether it can ship today. It reuses the marts with little new logic, and it turns a score into a concrete conversation.
@@ -142,7 +155,10 @@ pip install -r requirements.txt
 python ingest/ingest.py
 
 # 3. Build and test the dbt models
-cd dbt && dbt build
+cd dbt && dbt build && cd ..
+
+# 4. Start the app (opens at http://localhost:8501)
+streamlit run app/app.py
 ```
 
 ## Next steps with more time

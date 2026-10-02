@@ -76,6 +76,8 @@ models:
         description: Average gap between days with a purchase; the customer's normal buying rhythm.
       - name: is_house_account
         description: Assigned salesperson is a system account (HSE, WEB...), not a real rep.
+      - name: phone
+        description: Contact phone from the customer master (bill-to account), for the app's call details.
       - name: lifetime_charges
         description: Header-only charges (service charges, surcharges, fees). Not in sales.
       - name: lifetime_adjustments

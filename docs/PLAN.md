@@ -147,5 +147,6 @@ Sent to Andrew (ADH) on 2026-10-02, each with the default we use until answered:
 Still open, to raise in the review:
 - How prebuy deposits are applied (AR, not in the extract).
 - Meaning of the small inventory stock types (F/R/T/L/Z).
+- Biggs (customer 2829): 15,478 stock-transfer lines (WCTC/PCTC/SCTC STOCK TRANSFER) against 9,031 sales lines. A related company or stocking location rather than a contractor? Kept in the opportunity list ($414K real sales) until confirmed.
 - Buy-line near-duplicates: the 4 high-confidence pairs are applied; still undecided are FLANSDER / FLANDERS (likely) and MTSUBIS / MITSUBIS (uncertain).
 - Confirm with ADH that $0 consignment transfers + priced consignment billing is how they record consignment (data strongly supports it), and whether a structured consignment flag exists in the ERP that the extract left out.
