@@ -76,9 +76,15 @@ signals as (
         c.days_since_last_purchase / nullif(c.avg_days_between_purchases, 0)
                                                             as gap_ratio,
 
-        -- Signal 1: long-term decline = complete-year gross profit fell two years running
+        -- Signal 1: declining, from complete years. Two triggers:
+        --   two years running: fell each year (a trend, not one down year)
+        --   sharp drop: latest year is far below BOTH earlier years. Comparing to both means a
+        --   one-off spike year (a big project) can never create or inflate it.
         coalesce(y.gp_year_2 < y.gp_year_1 and y.gp_year_3 < y.gp_year_2, false)
-                                                            as is_long_term_decline,
+                                                            as is_two_year_decline,
+        coalesce(y.gp_year_3 <= (1 - {{ var('opp_sharp_drop_pct') }}) * least(y.gp_year_1, y.gp_year_2)
+                 and least(y.gp_year_1, y.gp_year_2) - y.gp_year_3 >= {{ var('opp_min_lost_gp') }}, false)
+                                                            as is_sharp_drop,
         -- Signal 2: behind this year = same-period gross profit well below last year's same period,
         -- by a meaningful amount (a $187 baseline going to $0 is not a signal)
         coalesce(y.same_period_gp_last_year > 0
@@ -97,6 +103,7 @@ signals as (
 with_quiet as (
     select
         *,
+        is_two_year_decline or is_sharp_drop                as is_declining,
         -- Signal 3: gone quiet = silent for much longer than their own normal gap, or lapsed
         (has_rhythm and gap_ratio > {{ var('opp_quiet_gap_multiple') }})
             or purchase_status = 'lapsed'                   as is_gone_quiet
@@ -107,8 +114,11 @@ estimates as (
     select
         *,
         -- Lost gross profit implied by each signal (0 when the signal did not fire)
-        case when is_long_term_decline
-             then greatest(gp_year_1, gp_year_2) - gp_year_3 else 0 end            as lost_gp_long_term,
+        -- Declining: from their best year if two years running; from the LOWER of the two earlier
+        -- years for a sharp drop, so a spike year never inflates the loss
+        case when is_two_year_decline then greatest(gp_year_1, gp_year_2) - gp_year_3
+             when is_sharp_drop       then least(gp_year_1, gp_year_2) - gp_year_3
+             else 0 end                                                            as lost_gp_declining,
         case when is_behind_this_year
              then same_period_gp_last_year - same_period_gp_this_year else 0 end   as lost_gp_this_year,
         case when is_gone_quiet
@@ -116,9 +126,17 @@ estimates as (
                                                                                    as lost_gp_gone_quiet,
 
         case
-            when (is_behind_this_year or is_gone_quiet) and not is_long_term_decline then 'early_warning'
-            when (is_behind_this_year or is_gone_quiet) and is_long_term_decline     then 'long_term_decline'
-            when is_long_term_decline                                                then 'recovering'
+            -- Former customer: nothing in 12 months AND under the minimum in both recent complete years.
+            -- The question is about existing customers, so these are labelled but never flagged.
+            when purchase_status = 'lapsed'
+                 and coalesce(gp_year_2, 0) < {{ var('opp_min_lost_gp') }}
+                 and coalesce(gp_year_3, 0) < {{ var('opp_min_lost_gp') }}            then 'former_customer'
+            -- Lapsed (nothing in 12 months) is not a warm relationship that just started slipping,
+            -- so it is never an early warning: treat it as declining
+            when purchase_status = 'lapsed'                                  then 'declining'
+            when (is_behind_this_year or is_gone_quiet) and not is_declining then 'early_warning'
+            when (is_behind_this_year or is_gone_quiet) and is_declining     then 'declining'
+            when is_declining                                                then 'recovering'
         end                                                                        as opportunity_type,
 
         -- Recoverability: how recently they bought, relative to their own rhythm where they have one
@@ -138,10 +156,10 @@ scored as (
     select
         *,
         -- The signals often describe the same drop, so take the largest estimate, not the sum
-        greatest(lost_gp_long_term, lost_gp_this_year, lost_gp_gone_quiet)        as est_lost_gross_profit,
+        greatest(lost_gp_declining, lost_gp_this_year, lost_gp_gone_quiet)        as est_lost_gross_profit,
         case opportunity_type
             when 'early_warning'     then {{ var('opp_weight_early_warning') }}
-            when 'long_term_decline' then {{ var('opp_weight_long_term_decline') }}
+            when 'declining'         then {{ var('opp_weight_declining') }}
             when 'recovering'        then {{ var('opp_weight_recovering') }}
             else 0
         end                                                                        as winnability_weight
@@ -153,6 +171,7 @@ flagged as (
         *,
         est_lost_gross_profit * winnability_weight * recoverability_factor          as priority_score,
         opportunity_type is not null
+            and opportunity_type <> 'former_customer'
             and est_lost_gross_profit >= {{ var('opp_min_lost_gp') }}               as is_flagged
     from scored
 )
@@ -176,11 +195,15 @@ select
 
     -- Plain-English reason, built from whichever signals fired
     concat_ws('; ',
-        case when is_long_term_decline then
+        case when is_two_year_decline then
             format('Gross profit down two years running ({} in {} to {} in {})',
                    {{ fmt_money('greatest(gp_year_1, gp_year_2)') }},
                    case when gp_year_1 >= gp_year_2 then current_year - 3 else current_year - 2 end,
-                   {{ fmt_money('gp_year_3') }}, current_year - 1) end,
+                   {{ fmt_money('gp_year_3') }}, current_year - 1)
+             when is_sharp_drop then
+            format('Gross profit dropped sharply to {} in {} (at least {} in each of {} and {})',
+                   {{ fmt_money('gp_year_3') }}, current_year - 1,
+                   {{ fmt_money('least(gp_year_1, gp_year_2)') }}, current_year - 3, current_year - 2) end,
         case when is_behind_this_year then
             format('{} so far is {}% behind last year through {} ({} vs {} gross profit)',
                    current_year,
@@ -197,7 +220,9 @@ select
     )                                                                               as reason,
 
     -- Signals and the numbers behind them
-    is_long_term_decline,
+    is_declining,
+    is_two_year_decline,
+    is_sharp_drop,
     is_behind_this_year,
     is_gone_quiet,
     gp_year_1                                                                       as gp_oldest_complete_year,
@@ -211,7 +236,7 @@ select
     days_since_last_purchase,
     avg_days_between_purchases,
     round(gap_ratio, 2)                                                             as gap_ratio,
-    lost_gp_long_term,
+    lost_gp_declining,
     lost_gp_this_year,
     lost_gp_gone_quiet,
     stopped_brands,

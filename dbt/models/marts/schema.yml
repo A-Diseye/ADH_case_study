@@ -138,10 +138,10 @@ models:
           - relationships:
               arguments: {to: ref('mart_customers'), field: customer_id}
       - name: opportunity_type
-        description: early_warning (steady before, behind/quiet now), long_term_decline (declining and still behind/quiet), recovering (declined, on track this year).
+        description: "early_warning (steady before, behind/quiet now), declining (two-year decline or sharp drop and still behind/quiet, or lapsed - no purchase in 12 months), recovering (declined, on track this year), former_customer (lapsed and under $1K in both recent complete years; labelled, never flagged)."
         data_tests:
           - accepted_values:
-              arguments: {values: [early_warning, long_term_decline, recovering]}
+              arguments: {values: [early_warning, declining, recovering, former_customer]}
       - name: is_flagged
         description: Has an opportunity type and estimated lost GP of at least opp_min_lost_gp.
         data_tests: [not_null]
@@ -150,7 +150,7 @@ models:
         data_tests: [not_null]
       - name: reason
         description: Plain-English explanation built from the signals that fired.
-      - name: is_long_term_decline
+      - name: is_declining
         data_tests: [not_null]
       - name: is_behind_this_year
         data_tests: [not_null]

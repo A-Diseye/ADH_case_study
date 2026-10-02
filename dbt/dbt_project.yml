@@ -20,8 +20,9 @@ vars:
   opp_rhythm_min_invoices: 5        # purchase invoices needed for a reliable buying rhythm
   opp_min_lost_gp: 1000             # flag only if estimated lost gross profit is at least this
   opp_min_brand_gp: 1000            # "stopped buying a brand" if the brand was worth at least this
+  opp_sharp_drop_pct: 0.25          # sharp drop = latest complete year at least this far below BOTH earlier years
   opp_weight_early_warning: 1.0     # winnability weights by opportunity type
-  opp_weight_long_term_decline: 0.7
+  opp_weight_declining: 0.7
   opp_weight_recovering: 0.4
 
 models:

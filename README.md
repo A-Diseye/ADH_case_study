@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (156 dbt tests). Part 2 (opportunity model) built. Sections for Parts 2-4 describe the planned approach.
+> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (170+ dbt tests). Part 2 (opportunity model) built. Sections for Parts 2-4 describe the planned approach.
 
 ---
 
@@ -115,15 +115,15 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 
 1. **Real sales only:** product lines with money (no consignment transfers, payments or header-only charges and adjustments).
 2. **Three signals, all like-for-like** (a partial year is never compared with a full one):
-   - **Long-term decline:** gross profit fell two complete years running (2023 > 2024 > 2025). One down year can be a blip; two is a trend.
+   - **Declining:** gross profit fell two complete years running (one down year can be a blip; two is a trend), **or** dropped sharply: the latest complete year at least 25% below **both** earlier years, with the loss measured from the lower of them so a one-off spike year never inflates it.
    - **Behind this year:** 2026 gross profit from Jan 1 to the as-of day is 10%+ (and $1K+) below the same dates in 2025. Seasonality cancels out because both periods cover the same months. In past years, customers 10-15% behind by September ended the year down 83% of the time, so acting early is justified.
    - **Gone quiet:** no purchase for more than 4x the customer's own normal gap between purchases (5+ invoices), or none in 12 months. In history, gaps over 4x happen in only 1.8% of normal buying, so most customers past 4x are genuinely slipping.
 3. **Estimated lost gross profit** = the largest of the three signal estimates (not the sum; they often describe the same drop). Flagged when $1,000 or more.
-4. **Winnability** by opportunity type: *early warning* (steady before, slipping now) 1.0, the easiest to save; *long-term decline* still slipping 0.7, likely already moved business elsewhere; *recovering* (declined, on track this year) 0.4.
+4. **Winnability** by opportunity type: *early warning* (steady before, slipping now) 1.0, the easiest to save; *declining* and still slipping, or lapsed (no purchase in 12 months) 0.7, likely already moved business elsewhere; *recovering* (declined, on track this year) 0.4. Customers with nothing in 12 months and under $1K in both recent complete years are labelled *former customer* and not ranked, because the question is about existing customers.
 5. **Recoverability** by recency relative to the customer's own rhythm: within 2x their normal gap 1.0, 2-4x 0.8, beyond or lapsed 0.5.
 6. **Reason:** each flagged customer gets a plain-English explanation, including brands they stopped buying, e.g. *"2026 so far is 62% behind last year through Sep 8 ($50,605 vs $132,581 gross profit); Stopped buying AIREFORCE, Warren Technologies, Weitron"*.
 
-**Result:** 200 customers flagged, about $2.86M estimated lost gross profit and $1.71M expected recoverable (140 early warnings, 35 long-term decliners, 25 recovering). Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
+**Result:** 202 customers flagged, about $3.03M estimated lost gross profit and $1.88M expected recoverable (121 early warnings, 47 declining, 34 recovering). The largest is A & L of NC: steady at about $500K gross profit a year, then $58K in 2025. Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
 
 **Weaknesses:** a drop may mean fewer projects rather than a lost customer (no quote, pipeline or competitor data); one large past project can look like a decline; winnability weights are a judgement because there is no outreach-outcome data; related accounts are scored separately until ADH confirms otherwise.
 
