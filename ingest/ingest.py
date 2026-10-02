@@ -23,7 +23,8 @@ from pathlib import Path
 import duckdb
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-RAW_DIR = PROJECT_DIR / "data" / "raw" / "Sample ERP Data"
+# Source files go anywhere under data/raw (directly or in a subfolder, e.g. "Sample ERP Data").
+RAW_DIR = PROJECT_DIR / "data" / "raw"
 INTERIM_DIR = PROJECT_DIR / "data" / "interim"
 DB_PATH = PROJECT_DIR / "data" / "adh.duckdb"
 
@@ -81,9 +82,14 @@ def main() -> None:
 
     print(f"{'table':<12} {'files':>5} {'rows':>10} {'latin-1 lines':>14}")
     for table, pattern in SOURCES.items():
-        files = sorted(RAW_DIR.glob(pattern))
+        files = sorted(RAW_DIR.rglob(pattern))  # rglob = search subfolders too
         if not files:
-            raise FileNotFoundError(f"No files match {pattern} in {RAW_DIR}")
+            raise FileNotFoundError(f"No files match {pattern} under {RAW_DIR}")
+        # The same file in two folders would be loaded twice and double-count rows.
+        names = [f.name for f in files]
+        duplicates = {n for n in names if names.count(n) > 1}
+        if duplicates:
+            raise ValueError(f"Same file found in more than one folder under {RAW_DIR}: {duplicates}")
 
         expected_rows, latin1_lines, clean_paths = 0, 0, []
         for src in files:

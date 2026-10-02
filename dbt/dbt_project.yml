@@ -17,4 +17,6 @@ models:
   adh:
     staging:
       +schema: staging
-      +materialized: view
+      # Tables, not views: every cast runs at build time, so a bad value fails here
+      # instead of in whichever later layer first reads that column.
+      +materialized: table
