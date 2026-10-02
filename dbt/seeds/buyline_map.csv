@@ -1,0 +1,10 @@
+buy_line,mapped_buy_line,confidence,note
+STROM,STRMQU,high,Identical lookup description (STROMQUIST); STRMQU has more SKUs
+AMERIFIT,AMERFITG,high,Identical lookup description (AMERICAN FITTINGS)
+AMA,AMANA,high,Identical lookup description (AMANA PTACS)
+WOLVRN,LUCAS-MI,high,Identical lookup description (LUCAS-MIL)
+FLANSDER,FLANDERS,likely,"Descriptions differ (FLANDERS vs Flanders Filters), but the description of FLANSDER is the FLANDERS code and the code looks like a letter-swap typo; not applied"
+MTSUBIS,MITSUBIS,uncertain,Both Mitsubishi but may be different product lines; not applied
+LUXRES,LUXRES,distinct,Luxaire residential; not the same as LUXCOM (commercial)
+LUXCOM,LUXCOM,distinct,Luxaire commercial; not the same as LUXRES (residential)
+STRMLIT,STRMLIT,distinct,Streamlight; not a typo of STRMQU (Stromquist)

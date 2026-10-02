@@ -1,0 +1,128 @@
+version: 2
+
+# Intermediate = business rules, applied once and reused by every mart.
+
+models:
+  - name: int_sales_lines
+    description: >
+      One row per sales line with business rules applied: money-based classification (is_financial),
+      line_type label and purchase flag. Legitimate identical duplicate lines are kept.
+    columns:
+      - name: sales_line_id
+        data_tests: [unique, not_null]
+      - name: line_type
+        description: >
+          Non-financial ($0 price and COGS): consignment_transfer, payment_record, stock_transfer,
+          other_zero_dollar. Financial: sale, consignment_billing, return_credit, no_charge.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [sale, consignment_billing, return_credit, no_charge,
+                         consignment_transfer, payment_record, stock_transfer, other_zero_dollar]
+      - name: is_financial
+        description: Price or COGS is non-zero. Only these lines count in revenue, cost and gross profit.
+        data_tests: [not_null]
+      - name: is_purchase
+        description: Price > 0. Drives purchase frequency and last-purchase date.
+        data_tests: [not_null]
+      - name: is_consignment
+        description: PO text mentions consignment (typo-tolerant). Label only; never decides dollars.
+      - name: gross_profit
+        description: ext_price - ext_cogs.
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('int_products'), field: product_id}
+
+  - name: int_invoices
+    description: One row per invoice header with line totals and a reconciliation status.
+    columns:
+      - name: invoice_no
+        data_tests: [unique, not_null]
+      - name: reconciliation_status
+        description: matched (within 1 cent), variance, or header_only.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [matched, variance, header_only]}
+      - name: line_variance
+        description: Line price total minus header item total (NULL for header-only invoices).
+
+  - name: int_header_only_entries
+    description: >
+      Header-only invoices (no product lines) as one non-product row each, so total revenue
+      reconciles. Never product revenue. Split by kind of money: charge_amount (service charges,
+      surcharges, fees) and adjustment_amount (rebates, AR adjustments, bad debt, prebuys,
+      payment corrections, other credits). line_type keeps the detail.
+    columns:
+      - name: sales_line_id
+        data_tests: [unique, not_null]
+      - name: invoice_no
+        data_tests:
+          - unique
+          - relationships:
+              arguments: {to: ref('int_invoices'), field: invoice_no}
+      - name: line_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [service_charge, surcharge_fee, prebuy_prepayment, rebate_loyalty, bad_debt,
+                         ar_adjustment, payment_correction, other_adjustment, other_zero_dollar]
+      - name: entry_group
+        description: charge, adjustment, or zero_dollar.
+        data_tests:
+          - accepted_values:
+              arguments: {values: [charge, adjustment, zero_dollar]}
+      - name: charge_amount
+        description: Real charges to the customer (service charges, surcharges, fees). 0 otherwise.
+        data_tests: [not_null]
+      - name: adjustment_amount
+        description: >
+          Credits and prepayments. Prebuys are customer deposits (a liability), not revenue: the goods
+          are invoiced later as normal product sales, so counting the prebuy as revenue would double count.
+        data_tests: [not_null]
+
+  - name: int_products
+    description: One row per SKU with type, brand (raw and mapped buy line) and the non-product flag.
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: is_non_product
+        data_tests: [not_null]
+
+  - name: int_inventory_by_branch
+    description: >
+      On-hand stock per product and branch, split into warehouse stock (available to ship),
+      consignment stock at customer sites, and other buckets.
+    columns:
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('int_products'), field: product_id}
+      - name: branch_id
+        data_tests: [not_null]
+      - name: warehouse_qty
+        description: Our own stock (stock_type S); the only stock a rep can ship from.
+      - name: consignment_qty
+        description: Stock held at customer sites on consignment (stock_type C + customer ID).
+
+  - name: int_salespeople
+    description: One row per salesperson ID, mapped to a person, with system accounts flagged.
+    columns:
+      - name: salesperson_id
+        data_tests: [unique, not_null]
+      - name: person_id
+        data_tests: [not_null]
+      - name: is_system_account
+        data_tests: [not_null]
+
+  - name: int_buylines
+    description: One row per buy line code, with high-confidence near-duplicates mapped (raw code kept).
+    columns:
+      - name: buy_line
+        data_tests: [unique, not_null]
+      - name: mapped_buy_line
+        data_tests: [not_null]

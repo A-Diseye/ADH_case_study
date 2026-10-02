@@ -1,0 +1,17 @@
+salesperson_id,reason
+HSE,House account (no individual salesperson)
+WEB,Web orders
+ADMIN,Administration
+GSALES,Generic sales login
+ALL,System user group
+LOGGED,System user group
+BACKUP,Report group
+CATUSER1,Catalog user
+EDI.ADM,EDI administration
+ECLIPSE,ERP vendor account
+IMPAQX,System / integration account
+NORDOPS,System / integration account
+SCHMITTW,Web integration account
+SCP.ORD,Order import account
+TODDSIT,IT account
+ZERION,System / integration account

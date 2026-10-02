@@ -1,0 +1,19 @@
+version: 2
+
+seeds:
+  - name: salesperson_system_accounts
+    description: Salesperson IDs that are system / house accounts, not real salespeople. Judgement call, reviewable.
+    columns:
+      - name: salesperson_id
+        data_tests: [unique, not_null]
+  - name: buyline_map
+    description: >
+      Buy-line near-duplicate review. confidence = high (applied), likely / uncertain (not applied),
+      distinct (looks similar but is a different line).
+    columns:
+      - name: buy_line
+        data_tests: [unique, not_null]
+      - name: confidence
+        data_tests:
+          - accepted_values:
+              arguments: {values: [high, likely, uncertain, distinct]}

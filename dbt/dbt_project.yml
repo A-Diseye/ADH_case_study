@@ -5,6 +5,7 @@ profile: adh
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
+seed-paths: ["seeds"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
@@ -20,3 +21,10 @@ models:
       # Tables, not views: every cast runs at build time, so a bad value fails here
       # instead of in whichever later layer first reads that column.
       +materialized: table
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+
+seeds:
+  adh:
+    +schema: seeds
