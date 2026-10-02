@@ -19,7 +19,8 @@ vars:
   opp_quiet_gap_multiple: 4         # gone quiet = silent for more than this multiple of their normal gap
   opp_rhythm_min_invoices: 5        # purchase invoices needed for a reliable buying rhythm
   opp_min_lost_gp: 1000             # flag only if estimated lost gross profit is at least this
-  opp_min_brand_gp: 1000            # "stopped buying a brand" if the brand was worth at least this
+  opp_min_brand_gp: 1000            # "mostly stopped buying a brand" only if the brand was worth at least this
+  opp_brand_drop_pct: 0.80          # ...and its gross profit is down at least this much
   opp_sharp_drop_pct: 0.25          # sharp drop = latest complete year at least this far below BOTH earlier years
   opp_weight_early_warning: 1.0     # winnability weights by opportunity type
   opp_weight_declining: 0.7

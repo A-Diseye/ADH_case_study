@@ -29,7 +29,7 @@ years as (
     group by y.customer_id
 ),
 
--- Brands they stopped buying, biggest first (top 3 for the reason text)
+-- Brands they mostly stopped buying (down 80%+), biggest first (top 3 for the reason text)
 stopped_brands as (
     select
         customer_id,
@@ -38,7 +38,7 @@ stopped_brands as (
         count(*)                                            as stopped_brand_count,
         sum(gp_prior_12m)                                   as stopped_brands_gp_prior_12m
     from {{ ref('int_customer_brand_changes') }}
-    where is_stopped
+    where is_mostly_stopped
     group by customer_id
 ),
 
@@ -216,7 +216,7 @@ select
             format('No purchase for {} days; normally buys every {} days',
                    days_since_last_purchase, round(avg_days_between_purchases)::int) end,
         case when stopped_brand_count > 0 then
-            format('Stopped buying {}', stopped_brands) end
+            format('Mostly stopped buying {}', stopped_brands) end
     )                                                                               as reason,
 
     -- Signals and the numbers behind them

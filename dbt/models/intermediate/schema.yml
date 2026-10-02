@@ -130,12 +130,12 @@ models:
   - name: int_customer_brand_changes
     description: >
       Customer x brand bought in the last 24 months: gross profit prior 12 vs last 12 months, and
-      is_stopped (worth at least opp_min_brand_gp a year ago, nothing since). Feeds the Part 2
+      is_mostly_stopped (worth at least opp_min_brand_gp a year ago, down opp_brand_drop_pct or more since). Feeds the Part 2
       reason text and the Part 4 call sheet.
     columns:
       - name: customer_id
         data_tests: [not_null]
       - name: brand
         data_tests: [not_null]
-      - name: is_stopped
+      - name: is_mostly_stopped
         data_tests: [not_null]

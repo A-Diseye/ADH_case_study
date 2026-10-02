@@ -58,7 +58,7 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 | | `int_products` | SKU (159K), with product type, brand (raw and mapped) and non-product flag |
 | | `int_inventory_by_branch` | Product x branch: warehouse, consignment and other stock |
 | | `int_salespeople` | Salesperson ID mapped to a person, system accounts flagged |
-| | `int_customer_brand_changes` | Customer x brand: gross profit prior 12 vs last 12 months; brands they stopped buying |
+| | `int_customer_brand_changes` | Customer x brand: gross profit prior 12 vs last 12 months; brands they mostly stopped buying (down 80%+) |
 | | `int_buylines` | Buy-line code with high-confidence near-duplicates mapped |
 | | `int_reporting_dates` | One row: latest date in the data and the rolling 12-month window boundaries |
 | Marts | `mart_sales_detail` | Invoice line (1.06M) plus one non-product row per header-only invoice (3,261); names, categories, line type, revenue / cost / gross profit / margin, charges and adjustments, reconciliation flag |
@@ -121,7 +121,7 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 3. **Estimated lost gross profit** = the largest of the three signal estimates (not the sum; they often describe the same drop). Flagged when $1,000 or more.
 4. **Winnability** by opportunity type: *early warning* (steady before, slipping now) 1.0, the easiest to save; *declining* and still slipping, or lapsed (no purchase in 12 months) 0.7, likely already moved business elsewhere; *recovering* (declined, on track this year) 0.4. Customers with nothing in 12 months and under $1K in both recent complete years are labelled *former customer* and not ranked, because the question is about existing customers.
 5. **Recoverability** by recency relative to the customer's own rhythm: within 2x their normal gap 1.0, 2-4x 0.8, beyond or lapsed 0.5.
-6. **Reason:** each flagged customer gets a plain-English explanation, including brands they stopped buying, e.g. *"2026 so far is 62% behind last year through Sep 8 ($50,605 vs $132,581 gross profit); Stopped buying AIREFORCE, Warren Technologies, Weitron"*.
+6. **Reason:** each flagged customer gets a plain-English explanation, including brands they mostly stopped buying (worth $1K+ a year ago and down 80% or more, so a token order cannot hide the drop), e.g. *"2026 so far is 62% behind last year through Sep 8 ($50,605 vs $132,581 gross profit); Mostly stopped buying AIREFORCE, Warren Technologies, Weitron"*.
 
 **Result:** 202 customers flagged, about $3.03M estimated lost gross profit and $1.88M expected recoverable (121 early warnings, 47 declining, 34 recovering). The largest is A & L of NC: steady at about $500K gross profit a year, then $58K in 2025. Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
 
@@ -129,7 +129,7 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 
 ## The application (Part 3)
 
-A Streamlit app (`app/app.py`) for salespeople and managers. It only reads the marts, so all business logic stays in dbt.
+A Streamlit app (`app/app.py`) for salespeople and managers. It does no calculation of its own: every number comes from a dbt model (the marts, plus `int_customer_brand_changes` for the brands table), so each business rule is written once.
 
 - **Ranked list** of flagged customers with filters (salesperson, branch, opportunity type, minimum recoverable gross profit), headline totals, and a CSV download of the filtered list.
 - **Why flagged:** a plain-English reason on every row, plus a "How the ranking works" section explaining the score.

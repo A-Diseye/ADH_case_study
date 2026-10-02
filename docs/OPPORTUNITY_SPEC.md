@@ -13,7 +13,7 @@ Built as one dbt model, `mart_opportunities` (one row per customer who has ever 
 | **Declining** | Full-year GP fell two years running (2023 > 2024 > 2025), **or** a sharp drop: 2025 at least **25%** (and $1K) below **both** 2023 and 2024 | Two years running: best of 2023/2024 minus 2025. Sharp drop: the **lower** of 2023/2024 minus 2025 | `mart_customer_years.full_year_*` |
 | **Behind this year** | 2026 GP from Jan 1 to the as-of day is at least **10%** below the same period of 2025 | 2025 same-period GP minus 2026 same-period GP | `mart_customer_years.same_period_*` |
 | **Gone quiet** | No purchase for more than **4x** their normal gap between purchases (customers with 5+ purchase invoices), or no purchase at all in the last 12 months | Prior-12-month GP minus last-12-month GP | `mart_customers` |
-| **Stopped buying a brand** | A brand worth at least **$1K** GP to them in the prior 12 months, nothing in the last 12 | (used for the reason and Part 4, not added to the estimate) | `mart_sales_detail` |
+| **Mostly stopped buying a brand** | A brand worth at least **$1K** GP to them in the prior 12 months, down **80%** or more in the last 12 (not "went to zero": A & L's top brand went from $74.7K to $562, and a zero-only rule hid it) | (used for the reason and Part 4, not added to the estimate) | `int_customer_brand_changes` |
 
 **Estimated lost GP = the largest of the three signal estimates**, not the sum, because the signals often describe the same drop.
 
@@ -68,8 +68,8 @@ Relative to their rhythm so an infrequent buyer (e.g. every 100 days) is not mar
 - **Priority score = estimated lost GP x winnability x recoverability** (expected recoverable gross profit), ranked highest first.
 - **Flagged** when estimated lost GP is at least **$1,000** (removes small-customer noise; 626 customers made under $1K GP in 2025).
 - Each row has: customer, salesperson (or "unassigned"), home branch, `opportunity_type`, the signals that fired, the key numbers behind them, estimated lost GP, score, rank, and a **plain-English reason**, e.g.
-  *"Gross profit down 3 years running ($72K in 2023 to $41K in 2025); 2026 so far is 35% behind the same period last year. Stopped buying HEIL and SUPCO."*
-- A supporting model, `int_customer_brand_changes` (customer x brand, prior vs last 12 months), feeds the "stopped buying" list and is reused by the Part 4 call sheet.
+  *"Gross profit down 3 years running ($72K in 2023 to $41K in 2025); 2026 so far is 35% behind the same period last year. Mostly stopped buying HEIL and SUPCO."*
+- A supporting model, `int_customer_brand_changes` (customer x brand, prior vs last 12 months), feeds the "mostly stopped buying" list and is reused by the Part 4 call sheet.
 
 **Result on current data:** 202 customers flagged, about $3.03M estimated lost gross profit, $1.88M expected recoverable (121 early warning, 47 declining, 34 recovering); 201 former customers labelled, not flagged. #1 is A & L of NC ($438K lost). "Behind this year" also requires a shortfall of at least $1K, so a tiny baseline (e.g. $187 to $0) does not fire it.
 

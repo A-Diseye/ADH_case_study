@@ -35,15 +35,19 @@ opps = query("""
 """)
 as_of = pd.to_datetime(opps["as_of_date"].iloc[0]).date()
 
+# Show opportunity types in plain English rather than the model's codes
+TYPE_LABELS = {"early_warning": "Early warning", "declining": "Declining", "recovering": "Recovering"}
+opps["opportunity_type"] = opps["opportunity_type"].map(TYPE_LABELS)
+
 # ---------------------------------------------------------------- sidebar filters
 st.sidebar.header("Filters")
 reps = st.sidebar.multiselect("Salesperson", sorted(opps["salesperson"].unique()))
 branches = st.sidebar.multiselect("Home branch", sorted(opps["home_branch_name"].dropna().unique()))
 types = st.sidebar.multiselect(
-    "Opportunity type", ["early_warning", "declining", "recovering"],
-    help="early_warning: steady before, slipping now (easiest to save). "
-         "declining: down two years running, a sharp drop, or no purchase in 12 months. "
-         "recovering: declined before, on track this year.",
+    "Opportunity type", list(TYPE_LABELS.values()),
+    help="Early warning: steady before, slipping now (easiest to save). "
+         "Declining: down two years running, a sharp drop, or no purchase in 12 months. "
+         "Recovering: declined before, on track this year.",
 )
 min_score = st.sidebar.number_input("Minimum recoverable gross profit ($)", min_value=0, value=0, step=1000)
 
@@ -156,6 +160,9 @@ with left:
         group by 1 order by 1
     """, (customer_id,))
     st.bar_chart(monthly, x="month", y="gross_profit", height=260)
+    if as_of != (pd.Timestamp(as_of) + pd.offsets.MonthEnd(0)).date():
+        st.caption(f"The last bar ({as_of:%B %Y}) is a partial month: data ends on {as_of:%b %d}, "
+                   f"so it is not a real drop.")
 
     st.markdown("**By year** (same period = Jan 1 to the latest data date, every year)")
     years = query("""
@@ -172,22 +179,21 @@ with left:
 
 with right:
     st.markdown("**Brands: last 12 months vs the 12 before** (biggest drops first)")
+    # Same model (and the same windows and 80% rule) that writes "Mostly stopped buying" in the reason
     brands = query("""
-        with d as (select max(as_of_date) as as_of from marts.mart_opportunities)
-        select coalesce(s.brand_desc, s.brand) as brand,
-               coalesce(sum(s.gross_profit) filter (where s.ship_date >  d.as_of - interval 24 month
-                                                      and s.ship_date <= d.as_of - interval 12 month), 0) as gp_prior_12m,
-               coalesce(sum(s.gross_profit) filter (where s.ship_date >  d.as_of - interval 12 month), 0) as gp_last_12m
-        from marts.mart_sales_detail s cross join d
-        where s.bill_to_customer_id = ? and s.is_financial and s.row_source = 'product_line'
-          and s.ship_date > d.as_of - interval 24 month
-        group by 1
-        order by gp_last_12m - gp_prior_12m
+        select coalesce(brand_desc, brand) as brand,
+               coalesce(gp_prior_12m, 0) as gp_prior_12m,
+               coalesce(gp_last_12m, 0) as gp_last_12m,
+               case when is_mostly_stopped then '✓' else '' end as mostly_stopped
+        from intermediate.int_customer_brand_changes
+        where customer_id = ?
+        order by coalesce(gp_last_12m, 0) - coalesce(gp_prior_12m, 0)
         limit 15
     """, (customer_id,))
     st.dataframe(brands, hide_index=True, width="stretch", column_config={
         "brand": "Brand", "gp_prior_12m": st.column_config.NumberColumn("GP prior 12m", format="dollar"),
         "gp_last_12m": st.column_config.NumberColumn("GP last 12m", format="dollar"),
+        "mostly_stopped": "Mostly stopped",
     })
 
     st.markdown("**Recent invoices**")
