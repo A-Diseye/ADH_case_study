@@ -130,12 +130,14 @@ customer_id = labels[st.selectbox("Choose a customer", list(labels))]
 cust = query("select * from marts.mart_opportunities where customer_id = ?", (customer_id,)).iloc[0]
 
 contact = query("""
-    select city, state, phone, email from marts.mart_customers where customer_id = ?
+    select city, state, phone, email, account_ids from marts.mart_customers where customer_id = ?
 """, (customer_id,)).iloc[0]
 details = [f"**Salesperson:** {cust['salesperson']}", f"**Branch:** {cust['home_branch_name'] or 'n/a'}"]
 details.append(f"**Location:** {', '.join(x for x in [contact['city'], contact['state']] if x) or 'n/a'}")
 details.append(f"**Phone:** {contact['phone'] or 'n/a'}")
 details.append(f"**Email:** {contact['email'] or 'n/a'}")
+if "," in contact["account_ids"]:   # related bill-to accounts rolled up into this customer
+    details.append(f"**Accounts:** {contact['account_ids']}")
 st.markdown(f"### {cust['customer_name']}")
 st.markdown("  |  ".join(details))
 # Escape $ so markdown does not render the text between two dollar amounts as a maths formula
@@ -156,7 +158,7 @@ with left:
     monthly = query("""
         select date_trunc('month', ship_date) as month, sum(gross_profit) as gross_profit
         from marts.mart_sales_detail
-        where bill_to_customer_id = ? and is_financial and row_source = 'product_line'
+        where customer_id = ? and is_financial   -- includes invoice corrections and rebates
         group by 1 order by 1
     """, (customer_id,))
     st.bar_chart(monthly, x="month", y="gross_profit", height=260)
@@ -198,10 +200,11 @@ with right:
 
     st.markdown("**Recent invoices**")
     invoices = query("""
-        select ship_date, invoice_no, ship_branch_name as branch, count(*) as lines,
+        select ship_date, invoice_no, ship_branch_name as branch,
+               count(*) filter (where row_source = 'product_line') as lines,
                sum(revenue) as sales, sum(gross_profit) as gross_profit
         from marts.mart_sales_detail
-        where bill_to_customer_id = ? and is_financial and row_source = 'product_line'
+        where customer_id = ? and is_financial   -- totals match the invoice header
         group by all order by ship_date desc limit 15
     """, (customer_id,))
     st.dataframe(invoices, hide_index=True, width="stretch", column_config={

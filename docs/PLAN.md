@@ -110,11 +110,11 @@ For each flagged customer, list the specific products they stopped buying, ranke
 - Product category hierarchy may be thin (commodity and select-code fields looked blank in samples). Needs checking in the Products mart.
 - A live follow-up change request will test how easily the model adapts (for example, a new definition of opportunity or a new operating company), which is why business rules live in one layer.
 
-## 11. Decisions log (1-12 agreed with Ritu; 13+ made with Ayush during the build)
+## 11. Decisions log (1-12 agreed with Ritu; 13+ made with Ayush during the build; 22-25 from ADH's answers)
 
 | # | Decision | Notes |
 |---|---|---|
-| 1 | Gross profit uses `Ext_COGS`; keep `Ext_Cost` as a separate column | Compare the two in the data and revisit if needed |
+| 1 | Gross profit uses `Ext_COGS`; keep `Ext_Cost` as a separate column | Compare the two in the data and revisit if needed. **Confirmed by ADH (2026-10-02).** |
 | 2 | Header-only invoices are never product revenue. Split into two columns: `charge_amount` (service charges, fuel/handling surcharges, fees: +$869K) and `adjustment_amount` (rebates, AR adjustments, bad debt, prebuys, payment corrections, other credits: -$416K net); `line_type` keeps the detail | Revised with Ayush after profiling: only part of header-only is surcharges. Prebuys are customer deposits (a liability), not revenue; the goods are invoiced later as normal sales, so counting them would double count. How ADH applies the deposit (AR cash application) is not in the extract; to confirm |
 | 3 | Returns and credits are netted against sales by default, with a flag to analyze them separately | |
 | 4 | Transaction date = ship date. Keep order date and required date, plus an order-to-ship days field | Required date equals order date on 98% of lines, so it carries little information. Do not use it as a lateness measure |
@@ -135,14 +135,19 @@ For each flagged customer, list the specific products they stopped buying, ranke
 | 19 | Available stock = warehouse stock (stock_type S) minus committed; consignment stock at customer sites (C + customer ID) is shown separately | Summing all inventory rows would overstate what can ship. Warehouse stock can sit in several bins; all bins listed |
 | 20 | Salesperson IDs with the same name (ignoring case) are one person, represented by the most-used ID; system accounts (HSE, WEB, ADMIN...) are a reviewable seed list | KEITH / KEITHS kept separate (names differ) |
 | 21 | Product price and cost are observed: average unit price and COGS over the last 12 months of sales, plus inventory unit cost | The product master has no price or cost fields |
+| 22 | Account ownership is by design: customers with no rep (smaller accounts) show as "No dedicated rep", HOUSE as "House account (executive team)" | Answered by ADH. Not a data-quality issue |
+| 23 | Rebates and loyalty payouts are part of gross profit (a reduction of net sales); other header-only adjustments stay in `adjustment_amount` | Answered by ADH. Refines decision 2. -$735K gross profit; posts once a year (Dec 30-31), so comparisons stay fair |
+| 24 | The invoice total is the source of truth: one correction row per variance invoice (header minus lines) | Answered by ADH. Replaces "keep lines, flag invoice" (decision 15). Lines overstate price by $794K with matching cost (likely a missing discount line); gross profit -$794K |
+| 25 | Related bill-to accounts are one customer, via a reviewable seed (`customer_groups.csv`, 21 groups from name matches and the master's own links) | Answered by ADH. Refines decisions 16 and the customer grain. 3,349 customers; 4 accounts that were flagged alone are healthy once combined |
+| 26 | `int_customer_transactions` is the single source of customer sales and gross profit (product lines + invoice corrections + rebates, rolled up to the customer group) | Keeps decisions 23-25 in one place; product-level views stay on product lines |
 
 ## 12. Open questions
-Sent to Andrew (ADH) on 2026-10-02, each with the default we use until answered:
-- Account ownership for customers with no salesperson or HOUSE (546 of 933 purchasers, 34% of sales). Default: master assignment, rest unassigned.
-- `Ext_Cost` vs `Ext_COGS` for gross profit. Default: COGS.
-- Related bill-to accounts (e.g. 7611 / 7612 "(nontax)") as one customer? Default: separate.
-- Should rebates reduce customer value when ranking? Default: kept separate, not netted.
-- Why 1,527 invoices have line totals above the header (header counts one more line than the lines file contains). Default: keep lines, flag invoices.
+**Answered by Andrew (ADH), 2026-10-02, and applied:**
+- Account ownership: no salesperson / HOUSE is **by design** (smaller accounts get no rep; HOUSE = valued accounts handled by the executive team). Labels changed; scores unaffected (decision 22).
+- `Ext_Cost` vs `Ext_COGS`: **COGS confirmed** (decision 1).
+- Related bill-to accounts: **one customer** (decision 25).
+- Rebates: **factored into gross profit** (decision 23).
+- Invoices where lines exceed the header: **the invoice total is the source of truth** (decision 24).
 
 Still open, to raise in the review:
 - How prebuy deposits are applied (AR, not in the extract).

@@ -67,7 +67,11 @@ select
 
     case when line_type in ('service_charge', 'surcharge_fee')
          then header_item_total else 0 end              as charge_amount,
-    case when line_type not in ('service_charge', 'surcharge_fee', 'other_zero_dollar')
+    -- Rebates: ADH confirmed they should be factored into gross profit, so they get their own
+    -- column and are counted in customer sales and gross profit (int_customer_transactions)
+    case when line_type = 'rebate_loyalty'
+         then header_item_total else 0 end              as rebate_amount,
+    case when line_type not in ('service_charge', 'surcharge_fee', 'other_zero_dollar', 'rebate_loyalty')
          then header_item_total else 0 end              as adjustment_amount,
     header_cogs_total                                   as header_cogs,       -- $0 on every header-only invoice
 

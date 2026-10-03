@@ -67,20 +67,21 @@ Relative to their rhythm so an infrequent buyer (e.g. every 100 days) is not mar
 
 - **Priority score = estimated lost GP x winnability x recoverability** (expected recoverable gross profit), ranked highest first.
 - **Flagged** when estimated lost GP is at least **$1,000** (removes small-customer noise; 626 customers made under $1K GP in 2025).
-- Each row has: customer, salesperson (or "unassigned"), home branch, `opportunity_type`, the signals that fired, the key numbers behind them, estimated lost GP, score, rank, and a **plain-English reason**, e.g.
+- Each row has: customer, salesperson (or "House account (executive team)" / "No dedicated rep"), home branch, `opportunity_type`, the signals that fired, the key numbers behind them, estimated lost GP, score, rank, and a **plain-English reason**, e.g.
   *"Gross profit down 3 years running ($72K in 2023 to $41K in 2025); 2026 so far is 35% behind the same period last year. Mostly stopped buying HEIL and SUPCO."*
 - A supporting model, `int_customer_brand_changes` (customer x brand, prior vs last 12 months), feeds the "mostly stopped buying" list and is reused by the Part 4 call sheet.
 
-**Result on current data:** 202 customers flagged, about $3.03M estimated lost gross profit, $1.88M expected recoverable (121 early warning, 47 declining, 34 recovering); 201 former customers labelled, not flagged. #1 is A & L of NC ($438K lost). "Behind this year" also requires a shortfall of at least $1K, so a tiny baseline (e.g. $187 to $0) does not fire it.
+**Result on current data:** 198 customers flagged, about $3.06M estimated lost gross profit, $1.87M expected recoverable (117 early warning, 46 declining, 35 recovering), after applying ADH's answers (rebates and invoice corrections in gross profit; related accounts as one customer). #1 is A & L of NC ($403K lost). "Behind this year" also requires a shortfall of at least $1K, so a tiny baseline (e.g. $187 to $0) does not fire it.
 
-## 5. Depends on pending ADH answers (defaults used until answered)
+## 5. ADH answers (all applied)
 
 | Question | Effect if the default changes |
 |---|---|
-| Ext_Cost vs COGS | Gross profit column changes everywhere (one place: intermediate) |
-| Rebates | Net `adjustment_amount` rebates into lost GP |
-| Related bill-to accounts | Group related accounts before scoring (a small mapping seed) |
-| Account ownership | Fills in salesperson for unassigned customers; does not change scores |
+| Ext_Cost vs COGS | **Answered:** COGS confirmed; no change |
+| Rebates | **Answered:** part of gross profit; included in every gross-profit measure |
+| Related bill-to accounts | **Answered:** one customer; 21 groups rolled up via the `customer_groups` seed before scoring |
+| Invoice total vs lines | **Answered:** the invoice total is the source of truth; one correction row per variance invoice |
+| Account ownership | **Answered:** by design (no rep for smaller accounts; HOUSE = executive team). Label change only; scores unaffected |
 
 Salesperson is shown, not scored, so the ownership answer cannot move a customer up or down the list.
 

@@ -7,7 +7,7 @@ with dates as (
 )
 
 select
-    s.bill_to_customer_id                                                   as customer_id,
+    coalesce(g.customer_id, s.bill_to_customer_id)                          as customer_id,   -- customer group
     p.mapped_buy_line                                                       as brand,
     any_value(p.buy_line_desc)                                              as brand_desc,
 
@@ -28,7 +28,9 @@ from {{ ref('int_sales_lines') }} as s
 cross join dates as d
 join {{ ref('int_products') }} as p
     on p.product_id = s.product_id
+left join {{ ref('int_customer_groups') }} as g
+    on g.account_id = s.bill_to_customer_id
 where s.is_financial
   and s.ship_date > d.prior_12m_start
   and p.mapped_buy_line is not null
-group by s.bill_to_customer_id, p.mapped_buy_line
+group by coalesce(g.customer_id, s.bill_to_customer_id), p.mapped_buy_line

@@ -1,11 +1,14 @@
--- Sales detail: one row per invoice line, plus one non-product row per header-only invoice,
--- so totals reconcile to the invoice headers. Names and categories are joined in so the table
--- can be used on its own.
+-- Sales detail: one row per invoice line, plus non-product rows so totals match the invoice headers
+-- exactly (ADH confirmed the invoice total is the source of truth):
+--   header_only         one row per header-only invoice (charges, rebates, other adjustments)
+--   invoice_correction  one row per invoice whose lines disagree with the header (header minus lines)
+-- Names and categories are joined in so the table can be used on its own.
 --
 -- Money columns:
---   revenue / cogs / gross_profit   product lines only (0 on header-only rows)
+--   revenue / cogs / gross_profit   product lines, invoice corrections and rebates (rebates are part
+--                                   of gross profit, confirmed by ADH)
 --   charge_amount                   header-only charges (service charges, surcharges, fees)
---   adjustment_amount               header-only credits and prepayments (rebates, bad debt, prebuys...)
+--   adjustment_amount               other header-only credits and prepayments (bad debt, prebuys...)
 -- Filter is_financial for money totals and is_purchase for "did the customer buy something".
 
 with product_lines as (
@@ -71,10 +74,10 @@ header_rows as (
         false                           as is_consignment,
         false                           as is_return_credit,
         null                            as quantity,
-        0                               as revenue,
+        rebate_amount                   as revenue,         -- rebates reduce net sales and gross profit
         0                               as ext_cost,
         0                               as cogs,
-        0                               as gross_profit,
+        rebate_amount                   as gross_profit,
         charge_amount,
         adjustment_amount,
         _source_file,                   -- orders_*.txt (the header), not a sales file
@@ -82,10 +85,52 @@ header_rows as (
     from {{ ref('int_header_only_entries') }}
 ),
 
+correction_rows as (
+    select
+        t.transaction_id                as sales_line_id,
+        t.company_id,
+        'invoice_correction'            as row_source,
+        t.invoice_no,
+        t.ship_date,
+        null                            as order_date,
+        null                            as order_to_ship_days,
+        i.bill_to_customer_id,
+        i.ship_to_customer_id,
+        i.outside_salesperson_id,
+        i.inside_salesperson_id,
+        i.price_branch_id,
+        i.ship_branch_id,
+        i.sales_source,
+        i.customer_po,
+        null                            as product_id,
+        null                            as line_product_desc,
+        null                            as sell_group,
+        'invoice_correction'            as line_type,
+        true                            as is_financial,
+        false                           as is_purchase,
+        false                           as is_consignment,
+        false                           as is_return_credit,
+        null                            as quantity,
+        t.ext_price                     as revenue,
+        0                               as ext_cost,
+        t.ext_cogs                      as cogs,
+        t.gross_profit,
+        0                               as charge_amount,
+        0                               as adjustment_amount,
+        i._source_file,                 -- the invoice header in orders_*.txt
+        i._source_line
+    from {{ ref('int_customer_transactions') }} as t
+    join {{ ref('int_invoices') }} as i
+        on i.invoice_no = t.invoice_no
+    where t.transaction_type = 'invoice_correction'
+),
+
 all_rows as (
     select * from product_lines
     union all
     select * from header_rows
+    union all
+    select * from correction_rows
 )
 
 select
@@ -103,7 +148,9 @@ select
     i.reconciliation_status,
     i.reconciliation_status = 'variance'                    as has_invoice_variance,
 
-    -- Who
+    -- Who. customer_id = the customer for analysis (bill-to rolled up to its customer group)
+    g.customer_id,
+    gc.customer_name,
     r.bill_to_customer_id,
     bt.customer_name                                        as bill_to_customer_name,
     r.ship_to_customer_id,
@@ -152,6 +199,10 @@ select
 from all_rows as r
 left join {{ ref('int_invoices') }} as i
     on i.invoice_no = r.invoice_no
+left join {{ ref('int_customer_groups') }} as g
+    on g.account_id = r.bill_to_customer_id
+left join {{ ref('stg_customers') }} as gc
+    on gc.customer_id = g.customer_id
 left join {{ ref('stg_customers') }} as bt
     on bt.customer_id = r.bill_to_customer_id
 left join {{ ref('stg_customers') }} as st

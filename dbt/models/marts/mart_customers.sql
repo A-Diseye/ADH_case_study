@@ -1,34 +1,52 @@
--- Customers: one row per BILL-TO customer (who pays and owns the relationship).
+-- Customers: one row per customer = BILL-TO account, with related bill-to accounts (tax / non-tax,
+-- install / service, duplicates) rolled up into one customer, as confirmed by ADH (customer_groups).
 -- Includes every bill-to customer: active, inactive and never purchased (decision 6).
 --   * The bill-to recorded on the invoice is the customer for transactions. Three accounts are used
 --     as bill-to on invoices although the master says they bill elsewhere, so they are added too.
 --   * Names and attributes come from the bill-to account's own row in the customer master.
 --   * Salesperson = the master's assigned salesperson (decision 5).
--- Sales metrics use product lines only: revenue nets returns; "purchase" dates and frequency use
--- lines with a positive price. Header-only charges and adjustments are separate columns.
+-- Sales and gross profit come from int_customer_transactions: product lines, plus invoice corrections
+-- (the invoice total is the source of truth) and rebates (part of gross profit), as confirmed by ADH.
+-- Revenue nets returns; "purchase" dates and frequency use product lines with a positive price.
+-- Header-only charges and other adjustments are separate columns.
 -- Windows roll back from the latest ship date in the data (int_reporting_dates).
 
 with dates as (
     select * from {{ ref('int_reporting_dates') }}
 ),
 
+groups as (
+    select * from {{ ref('int_customer_groups') }}
+),
+
 bill_to_customers as (
-    select bill_to_customer_id from {{ ref('stg_customers') }}
+    select g.customer_id as bill_to_customer_id
+    from {{ ref('stg_customers') }} as c join groups as g on g.account_id = c.bill_to_customer_id
     union
-    select bill_to_customer_id from {{ ref('int_sales_lines') }}
+    select customer_id from {{ ref('int_customer_transactions') }}
     union
-    select bill_to_customer_id from {{ ref('int_header_only_entries') }}
+    select g.customer_id
+    from {{ ref('int_header_only_entries') }} as h join groups as g on g.account_id = h.bill_to_customer_id
+),
+
+-- Bill-to accounts that make up each customer (more than one for related accounts)
+accounts as (
+    select customer_id, string_agg(account_id, ', ' order by account_id) as account_ids
+    from groups
+    where customer_id in (select customer_id from groups where grouping_reason is not null)
+    group by customer_id
 ),
 
 ship_to_accounts as (
-    select bill_to_customer_id, count(*) as ship_to_account_count
-    from {{ ref('stg_customers') }}
-    group by bill_to_customer_id
+    select g.customer_id as bill_to_customer_id, count(*) as ship_to_account_count
+    from {{ ref('stg_customers') }} as c
+    join groups as g on g.account_id = c.bill_to_customer_id
+    group by g.customer_id
 ),
 
 sales as (
     select
-        s.bill_to_customer_id,
+        s.customer_id                                                       as bill_to_customer_id,
 
         min(s.ship_date) filter (where s.is_purchase)                       as first_purchase_date,
         max(s.ship_date) filter (where s.is_purchase)                       as last_purchase_date,
@@ -58,24 +76,27 @@ sales as (
         count(distinct p.mapped_buy_line) filter (where s.is_purchase)      as brands_bought_count,
 
         bool_or(s.is_consignment and s.is_financial)                        as has_consignment_billing
-    from {{ ref('int_sales_lines') }} as s
+    from {{ ref('int_customer_transactions') }} as s
     cross join dates as d
     left join {{ ref('int_products') }} as p
         on p.product_id = s.product_id
-    group by s.bill_to_customer_id
+    group by s.customer_id
 ),
 
 header_only as (
     select
-        bill_to_customer_id,
+        g.customer_id                       as bill_to_customer_id,
         sum(charge_amount)      as lifetime_charges,
-        sum(adjustment_amount)  as lifetime_adjustments
-    from {{ ref('int_header_only_entries') }}
-    group by bill_to_customer_id
+        sum(adjustment_amount)  as lifetime_adjustments,
+        sum(rebate_amount)      as lifetime_rebates
+    from {{ ref('int_header_only_entries') }} as h
+    join groups as g on g.account_id = h.bill_to_customer_id
+    group by g.customer_id
 )
 
 select
     b.bill_to_customer_id                                       as customer_id,
+    coalesce(acc.account_ids, b.bill_to_customer_id)            as account_ids,
     c.company_id,
     c.customer_name,
     c.city,
@@ -136,6 +157,7 @@ select
     -- Header-only money, kept separate from sales
     coalesce(h.lifetime_charges, 0)                             as lifetime_charges,
     coalesce(h.lifetime_adjustments, 0)                         as lifetime_adjustments,
+    coalesce(h.lifetime_rebates, 0)                             as lifetime_rebates,           -- already inside sales and gross profit
 
     d.as_of_date
 from bill_to_customers as b
@@ -144,6 +166,8 @@ left join {{ ref('stg_customers') }} as c
     on c.customer_id = b.bill_to_customer_id
 left join sales as s
     on s.bill_to_customer_id = b.bill_to_customer_id
+left join accounts as acc
+    on acc.customer_id = b.bill_to_customer_id
 left join header_only as h
     on h.bill_to_customer_id = b.bill_to_customer_id
 left join ship_to_accounts as a

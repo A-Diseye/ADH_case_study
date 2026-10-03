@@ -139,3 +139,26 @@ models:
         data_tests: [not_null]
       - name: is_mostly_stopped
         data_tests: [not_null]
+
+  - name: int_customer_transactions
+    description: >
+      Everything that counts towards a customer's sales and gross profit: product lines, invoice
+      corrections (header minus lines on variance invoices; the invoice total is the source of truth)
+      and rebates (part of gross profit). Both rules confirmed by ADH. Customer-level marts read this.
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests: [not_null]
+      - name: transaction_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [product_line, invoice_correction, rebate]}
+
+  - name: int_customer_groups
+    description: Every customer account mapped to its customer (group), from the customer_groups seed.
+    columns:
+      - name: account_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests: [not_null]

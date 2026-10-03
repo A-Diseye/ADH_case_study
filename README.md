@@ -58,11 +58,13 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 | | `int_products` | SKU (159K), with product type, brand (raw and mapped) and non-product flag |
 | | `int_inventory_by_branch` | Product x branch: warehouse, consignment and other stock |
 | | `int_salespeople` | Salesperson ID mapped to a person, system accounts flagged |
+| | `int_customer_transactions` | Everything that counts towards a customer's sales and gross profit: product lines, invoice corrections (header minus lines) and rebates |
+| | `int_customer_groups` | Every account mapped to its customer (related bill-to accounts are one customer), from a reviewable seed |
 | | `int_customer_brand_changes` | Customer x brand: gross profit prior 12 vs last 12 months; brands they mostly stopped buying (down 80%+) |
 | | `int_buylines` | Buy-line code with high-confidence near-duplicates mapped |
 | | `int_reporting_dates` | One row: latest date in the data and the rolling 12-month window boundaries |
 | Marts | `mart_sales_detail` | Invoice line (1.06M) plus one non-product row per header-only invoice (3,261); names, categories, line type, revenue / cost / gross profit / margin, charges and adjustments, reconciliation flag |
-| | `mart_customers` | Bill-to customer (3,372, incl. never purchased): recency, last 12 months vs prior 12, lifetime sales and gross profit, buying rhythm, average order value, categories bought, charges and adjustments |
+| | `mart_customers` | Customer (3,349, incl. never purchased; related bill-to accounts rolled up): recency, last 12 months vs prior 12, lifetime sales and gross profit (incl. invoice corrections and rebates), buying rhythm, average order value, categories bought, charges and adjustments |
 | | `mart_customer_years` | Customer x calendar year (zeros included): full-year sales and gross profit for the trend across complete years, plus same-period (Jan 1 to the as-of day) for judging the unfinished year fairly |
 | | `mart_opportunities` | Part 2: customer, scored and ranked by expected recoverable gross profit, with signals and a plain-English reason |
 | | `mart_products` | SKU (159K): type, brand, sell group, observed price and cost, last-12-month and lifetime sales, stock on hand, active and currently-stocked flags |
@@ -70,20 +72,19 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 
 ## Important assumptions
 
-- **Customer = bill-to** (who pays and owns the relationship). Ship-to is kept on sales detail; one business often has several ship-to accounts.
-- **Gross profit = price - `Ext_COGS`.** COGS matches vendor purchase cost (median ratio 1.00 against PO costs); `Ext_Cost` runs ~6% higher and looks like a standard/commission cost. Both are kept.
+- **Customer = bill-to, with related bill-to accounts rolled up into one customer** (confirmed by ADH). One business can have several bill-to accounts (tax / non-tax, install / service, duplicates); 21 such groups were found by matching names and the customer master's own links, and are kept in a reviewable seed (`customer_groups.csv`). Ship-to and the original bill-to account are kept on sales detail.
+- **Gross profit = price - `Ext_COGS`** (confirmed by ADH). COGS matches vendor purchase cost (median ratio 1.00 against PO costs); `Ext_Cost` runs ~6% higher and looks like a standard/commission cost. Both are kept.
 - **Consignment is classified by money, not text.** Lines with $0 price and $0 cost are stock movements, kept in the data but excluded from units, frequency and last-purchase metrics. The free-text PO field is only used to label line types.
 - **Line types.** Financial lines: sale, consignment billing, return/credit, no-charge. Non-financial ($0/$0): consignment transfer, stock transfer, payment record, other.
 - **Returns and credits** (negative price) are netted against sales and flagged.
-- **Header-only invoices are never product revenue.** They are split into `charge_amount` (service charges, surcharges, fees) and `adjustment_amount` (rebates, AR adjustments, bad debt, prebuys, payment corrections), following how accounting usually treats them. Prebuys are customer deposits: the goods are invoiced later as normal sales, so counting the prebuy would double count.
-- **Lines tie to the invoice header within 1 cent** (rounding). On the 1,527 invoices where lines exceed the header, the lines are kept and the invoice is flagged (`has_invoice_variance`) until ADH confirms which side is right.
+- **Header-only invoices are never product revenue.** Rebates and loyalty payouts are **factored into gross profit** (confirmed by ADH), treated as a reduction of net sales; they post once a year (Dec 30-31), so year-over-year comparisons stay fair. Service charges, surcharges and fees go in `charge_amount`; other adjustments (AR adjustments, bad debt, prebuys, payment corrections) in `adjustment_amount`. Prebuys are customer deposits: the goods are invoiced later as normal sales, so counting the prebuy would double count.
+- **The invoice total is the source of truth** (confirmed by ADH). On 1,527 invoices the lines add up to more than the header (+$794K of price, but cost matches, which points to a missing discount line). Each gets one correction row (header minus lines), so every invoice and every customer total matches the headers; the product lines are kept for detail. Differences of 1 cent (rounding) count as matching.
 - **Available stock = warehouse stock minus quantity already committed to orders.** Consignment stock sitting at customer sites and the small undocumented stock types (F/R/T/L/Z, under 0.2% of units) are shown separately and not counted as available.
 - **Salespeople:** IDs with the same name (ignoring case) are one person, represented by the most-used ID; house/web/admin IDs are flagged as system accounts.
 - **Buy-line near-duplicates:** only high-confidence pairs (identical lookup descriptions) are merged; the raw code is always kept.
 - **Identical duplicate lines are legitimate** (verified against invoice header totals) and are kept.
 - **Transaction date = ship date.** "Recent" windows roll back from the latest date in the data (2026-09-08), never hardcoded, and are defined once in `int_reporting_dates`.
-- **The bill-to on the invoice is the customer for transactions**; names and attributes come from the customer master. Related bill-to accounts (e.g. a separate tax-exempt account for the same business) are treated as separate customers. Salesperson = the master's assigned salesperson; customers with none or a house account show as unassigned.
-- **Rebates and other adjustments are not netted against a customer's sales** when measuring their value; they are kept in a separate column.
+- **The bill-to on the invoice is the customer for transactions** (rolled up to its customer group); names and attributes come from the customer master. Salesperson = the master's assigned salesperson. ADH confirmed that not every customer gets a rep by design (smaller accounts) and that HOUSE accounts are valued customers handled by the executive team; the app labels them "No dedicated rep" and "House account (executive team)".
 - **Active product = sold in the last 12 months**; "currently stocked" (warehouse stock on hand) is a separate flag. The product master has no price or cost, so the product mart shows observed price and COGS from the last 12 months of sales.
 - **Blank `Inactive` flag = active customer** (gives 727 inactive).
 - **Non-products:** 157 SKUs whose product type is not EQ/PA/IS/OT (accounting entries and one test SKU) are flagged, not deleted.
@@ -98,12 +99,12 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 4. **No line number on sales lines**, and identical duplicates are real. File + line position is used as the key.
 5. **Product master repeated per branch**, and 157 "products" are accounting entries (tax adjustments, fees, gift cards, warranties).
 6. **Consignment has no structured flag**, only free-text PO with many typos.
-7. **Invoice lines vs headers:** 3,261 header-only invoices and 1,527 invoices where lines exceed the header (+$794K net). Header-only invoices turned out to be not just surcharges but also prebuys (+$787K), rebates (-$735K), AR adjustments and bad debt.
+7. **Invoice lines vs headers:** 3,261 header-only invoices and 1,527 invoices where lines exceed the header by $794K of price with matching cost (likely a missing discount line; the header is the source of truth, so a correction row fixes each). Header-only invoices turned out to be not just surcharges but also prebuys (+$787K), rebates (-$735K), AR adjustments and bad debt.
 8. **Lookups are incomplete:** one salesperson ID and 8 buy lines are missing from their lookups (reported as dbt warnings).
 9. **Two cost columns** with different meanings (see assumptions).
 10. **Customer payments are recorded as $0 sales lines** on an "ONLINE PAYMENT" SKU (3,871 lines). Classified as payment records, not sales.
 11. **Inventory rows are stock buckets:** our warehouse (per bin) vs consignment stock at customer sites (coded C + customer ID). Summing them all would overstate what can be shipped.
-12. **A third of purchasing customers have no real assigned rep** (no salesperson or a house account, 34% of lifetime sales).
+12. **A third of purchasing customers have no dedicated rep** (no salesperson or a house account, 34% of lifetime sales). ADH confirmed this is by design, not a data gap.
 
 ## Opportunity methodology (Part 2)
 
@@ -123,9 +124,9 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 5. **Recoverability** by recency relative to the customer's own rhythm: within 2x their normal gap 1.0, 2-4x 0.8, beyond or lapsed 0.5.
 6. **Reason:** each flagged customer gets a plain-English explanation, including brands they mostly stopped buying (worth $1K+ a year ago and down 80% or more, so a token order cannot hide the drop), e.g. *"2026 so far is 62% behind last year through Sep 8 ($50,605 vs $132,581 gross profit); Mostly stopped buying AIREFORCE, Warren Technologies, Weitron"*.
 
-**Result:** 202 customers flagged, about $3.03M estimated lost gross profit and $1.88M expected recoverable (121 early warnings, 47 declining, 34 recovering). The largest is A & L of NC: steady at about $500K gross profit a year, then $58K in 2025. Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
+**Result:** 198 customers flagged, about $3.06M estimated lost gross profit and $1.87M expected recoverable (117 early warnings, 46 declining, 35 recovering). The largest is A & L of NC: steady at about $500K gross profit a year, then $58K in 2025. Output: `mart_opportunities`. Full reasoning and measurements: [docs/OPPORTUNITY_SPEC.md](docs/OPPORTUNITY_SPEC.md). Thresholds and weights are dbt variables, so they can be changed in one place.
 
-**Weaknesses:** a drop may mean fewer projects rather than a lost customer (no quote, pipeline or competitor data); one large past project can look like a decline; winnability weights are a judgement because there is no outreach-outcome data; related accounts are scored separately until ADH confirms otherwise.
+**Weaknesses:** a drop may mean fewer projects rather than a lost customer (no quote, pipeline or competitor data); one large past project can look like a decline; winnability weights are a judgement because there is no outreach-outcome data.
 
 ## The application (Part 3)
 
@@ -163,7 +164,7 @@ streamlit run app/app.py
 
 ## Next steps with more time
 
-- Confirm open questions with ADH (sent; defaults above are used until answered): who owns accounts with no salesperson or a house account, `Ext_Cost` vs `Ext_COGS`, whether related bill-to accounts are one customer, whether rebates should reduce customer value, and why ~1.5K invoices have lines that exceed the header. Also: whether a structured consignment flag exists in the ERP, how prebuy deposits are applied, the meaning of the small inventory stock types (F/R/T/L/Z), and the two undecided buy-line pairs.
+- Confirm remaining questions with ADH (the five data questions sent were answered and applied): whether a structured consignment flag exists in the ERP, how prebuy deposits are applied, the meaning of the small inventory stock types (F/R/T/L/Z), the two undecided buy-line pairs, and whether Biggs is a contractor or a related stocking location. Also review the 21 related-account groups with the business.
 - Seasonally adjusted projection of each customer's current year: use the share of annual buying they usually complete by the as-of date to project the full year, so heating-season buyers are not under-rated in September.
 - Derived product categories from descriptions/keywords (the source category fields are nearly empty).
 - Salesperson and buy-line mapping tables reviewed with the business.

@@ -17,3 +17,21 @@ seeds:
         data_tests:
           - accepted_values:
               arguments: {values: [high, likely, uncertain, distinct]}
+  - name: customer_groups
+    description: >
+      Related bill-to accounts that are one customer (ADH confirmed): account -> the account that
+      represents the group (largest gross profit, or the customer master's own link). Reviewable.
+    config:
+      column_types: {customer_id: varchar, group_customer_id: varchar}
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}
+      - name: group_customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_customers'), field: customer_id}

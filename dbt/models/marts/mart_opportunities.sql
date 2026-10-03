@@ -46,6 +46,7 @@ signals as (
     select
         c.customer_id,
         c.customer_name,
+        c.salesperson_id,
         c.salesperson_name,
         c.is_house_account,
         c.home_branch_name,
@@ -180,7 +181,10 @@ select
     customer_id,
     '{{ var("company_id") }}'                                                       as company_id,
     customer_name,
-    case when salesperson_name is null or is_house_account then 'Unassigned'
+    -- ADH: not every customer gets a rep by design (smaller accounts), and HOUSE accounts are
+    -- valued customers handled by the executive team rather than one salesperson
+    case when salesperson_id = 'HSE'                          then 'House account (executive team)'
+         when salesperson_name is null or is_house_account    then 'No dedicated rep'
          else salesperson_name end                                                  as salesperson,
     home_branch_name,
 

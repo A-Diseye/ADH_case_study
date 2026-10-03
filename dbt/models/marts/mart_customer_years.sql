@@ -13,18 +13,18 @@ with dates as (
 
 years as (
     select distinct year(ship_date) as sales_year
-    from {{ ref('int_sales_lines') }}
+    from {{ ref('int_customer_transactions') }}
 ),
 
 purchasers as (
-    select distinct bill_to_customer_id
-    from {{ ref('int_sales_lines') }}
+    select distinct customer_id
+    from {{ ref('int_customer_transactions') }}
     where is_purchase
 ),
 
 yearly as (
     select
-        s.bill_to_customer_id,
+        s.customer_id,
         year(s.ship_date)                                                   as sales_year,
         sum(s.ext_price) filter (where s.is_financial)                      as full_year_sales,
         sum(s.gross_profit) filter (where s.is_financial)                   as full_year_gross_profit,
@@ -36,15 +36,15 @@ yearly as (
         sum(s.gross_profit) filter (where s.is_financial
                                       and strftime(s.ship_date, '%m-%d') <= strftime(d.as_of_date, '%m-%d'))
                                                                             as same_period_gross_profit
-    from {{ ref('int_sales_lines') }} as s
+    from {{ ref('int_customer_transactions') }} as s
     cross join dates as d
-    group by s.bill_to_customer_id, year(s.ship_date)
+    group by s.customer_id, year(s.ship_date)
 )
 
 select
-    c.bill_to_customer_id || '-' || y.sales_year                            as customer_year_id,
+    c.customer_id || '-' || y.sales_year                            as customer_year_id,
     '{{ var("company_id") }}'                                               as company_id,
-    c.bill_to_customer_id                                                   as customer_id,
+    c.customer_id,
     y.sales_year,
     y.sales_year = year(d.as_of_date)                                       as is_partial_year,
     'Jan 1 - ' || strftime(d.as_of_date, '%b %-d')                          as same_period_label,
@@ -58,5 +58,5 @@ from purchasers as c
 cross join years as y
 cross join dates as d
 left join yearly as v
-    on v.bill_to_customer_id = c.bill_to_customer_id
+    on v.customer_id = c.customer_id
    and v.sales_year = y.sales_year

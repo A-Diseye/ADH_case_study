@@ -17,16 +17,19 @@ models:
       - name: row_source
         data_tests:
           - accepted_values:
-              arguments: {values: [product_line, header_only]}
+              arguments: {values: [product_line, header_only, invoice_correction]}
       - name: ship_date
         description: Transaction date.
         data_tests: [not_null]
-      - name: bill_to_customer_id
-        description: The customer (bill-to).
+      - name: customer_id
+        description: The customer for analysis (bill-to account rolled up to its customer group).
         data_tests:
           - not_null
           - relationships:
               arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: bill_to_customer_id
+        description: The bill-to account on the invoice (kept as recorded).
+        data_tests: [not_null]
       - name: product_id
         data_tests:
           - relationships:
@@ -39,7 +42,7 @@ models:
                 values: [sale, consignment_billing, return_credit, no_charge, consignment_transfer,
                          payment_record, stock_transfer, other_zero_dollar, service_charge, surcharge_fee,
                          prebuy_prepayment, rebate_loyalty, bad_debt, ar_adjustment, payment_correction,
-                         other_adjustment]
+                         other_adjustment, invoice_correction]
       - name: reconciliation_status
         description: matched / variance / header_only for the invoice this row belongs to.
         data_tests: [not_null]
