@@ -156,6 +156,8 @@ A Streamlit app (`app/app.py`) for salespeople and managers. It does no calculat
 
 **How a salesperson uses it:** in the app's customer detail, the brands table is clickable. Selecting a brand shows its products on the call sheet; with no brand selected, the sheet shows the customer's top products across all brands. Each sheet downloads as a CSV to take into the call.
 
+![Win-back call sheet for A & L of NC](docs/screenshots/call_sheet.png)
+
 **What it revealed:** some of the biggest lost products (e.g. A & L's older ICP heat pumps) have no current price and no stock: nobody has bought them in a year. They have likely been replaced by newer models (the R-454B N5H5 series is now the top seller), so "they stopped buying X" sometimes means "X was superseded".
 
 **What I would build next:**
