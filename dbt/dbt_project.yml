@@ -2,6 +2,9 @@ name: adh
 version: "1.0.0"
 profile: adh
 
+flags:
+  send_anonymous_usage_stats: false   # no usage telemetry on every run
+
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]

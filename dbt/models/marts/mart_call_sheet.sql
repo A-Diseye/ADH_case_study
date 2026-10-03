@@ -22,7 +22,20 @@ select
     pr.product_type_desc,
     pc.brand,
     pc.brand_desc,
-    row_number() over (partition by pc.customer_id order by pc.gp_prior_12m desc) as product_rank,
+    -- What the rep can act on: in stock now, still sold but not on hand, or likely replaced
+    -- (nobody has bought it in 12 months, so there is no current price)
+    case when pr.avg_unit_price_last_12m is null           then 'Likely replaced'
+         when coalesce(st.available_all_branches, 0) > 0   then 'In stock'
+         else 'Sold, not in stock'
+    end                                                                     as status,
+    -- Actionable first (in stock, then sold but not on hand), each by the gross profit it used to bring in.
+    -- Replaced products stay at the bottom: "you stopped buying X; the new model is Y" is still a conversation.
+    row_number() over (
+        partition by pc.customer_id
+        order by case when pr.avg_unit_price_last_12m is null then 3
+                      when coalesce(st.available_all_branches, 0) > 0 then 1 else 2 end,
+                 pc.gp_prior_12m desc
+    )                                                                       as product_rank,
 
     -- What they used to buy vs now
     pc.gp_prior_12m,

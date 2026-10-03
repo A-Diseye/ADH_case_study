@@ -221,11 +221,12 @@ with right:
 
 # ---------------------------------------------------------------- Part 4: win-back call sheet
 st.subheader("Call sheet: products to bring up")
-st.caption("Products this customer has mostly stopped buying (worth $250+ gross profit a year ago, down 80% or more), "
-           "biggest first, with what they last paid, our current typical price, and where we have it in stock. "
-           "A blank current price and no stock usually means the product has been replaced by a newer model.")
+st.caption("Products this customer has mostly stopped buying (worth \\$250+ gross profit a year ago, down 80% or more), "
+           "with what they last paid, our current typical price, and where we have it in stock. "
+           "Products we can sell today come first; 'Likely replaced' means nobody has bought it in 12 months "
+           "(probably a newer model exists).")
 sheet_sql = """
-    select product_rank, product_desc, brand_desc, gp_prior_12m, gp_last_12m, avg_units_per_month_before,
+    select product_rank, status, product_desc, brand_desc, gp_prior_12m, gp_last_12m, avg_units_per_month_before,
            last_purchase_date, last_unit_price, current_typical_price,
            available_home_branch, available_all_branches, best_branch, best_branch_available
     from marts.mart_call_sheet
@@ -241,7 +242,7 @@ if sheet.empty:
     st.info("No products this customer has mostly stopped buying" + (" in this brand." if selected_brand is not None else "."))
 else:
     st.dataframe(sheet.head(10 if selected_brand is None else len(sheet)), hide_index=True, width="stretch", column_config={
-        "product_rank": st.column_config.NumberColumn("#"),
+        "product_rank": st.column_config.NumberColumn("#"), "status": "Status",
         "product_desc": "Product", "brand_desc": "Brand",
         "gp_prior_12m": st.column_config.NumberColumn("GP before (12m)", format="dollar"),
         "gp_last_12m": st.column_config.NumberColumn("GP now (12m)", format="dollar"),

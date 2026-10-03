@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (190+ dbt tests). Part 2 (opportunity model) built. Part 3 (app) and Part 4 (win-back call sheet) built. Sections for Parts 2-4 describe the planned approach.
+> **Status:** Parts 1-4 complete: data foundation (ingest, staging, intermediate, marts; 190+ dbt tests), opportunity model, Streamlit app and win-back call sheet. ADH's answers to the open data questions are applied.
 
 ---
 
@@ -19,7 +19,7 @@ staging schema
    │  dbt intermediate    business rules: line types, consignment, header reconciliation, mappings
    ▼
 intermediate schema
-   │  dbt marts           the three business-ready tables
+   │  dbt marts           business-ready tables (sales, customers, products, opportunities, call sheet)
    ▼
 marts schema  ──►  opportunity analysis  ──►  Streamlit app
 ```
@@ -116,7 +116,7 @@ Full running log with numbers: [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md). Hig
 
 > priority score = estimated lost gross profit x winnability x recoverability
 
-1. **Real sales only:** product lines with money (no consignment transfers, payments or header-only charges and adjustments).
+1. **Real sales only:** product lines with money, plus invoice corrections (the invoice total is the source of truth) and rebates (part of gross profit), as confirmed by ADH. Consignment transfers, payment records, charges and other header-only adjustments are excluded.
 2. **Three signals, all like-for-like** (a partial year is never compared with a full one):
    - **Declining:** gross profit fell two complete years running (one down year can be a blip; two is a trend), **or** dropped sharply: the latest complete year at least 25% below **both** earlier years, with the loss measured from the lower of them so a one-off spike year never inflates it.
    - **Behind this year:** 2026 gross profit from Jan 1 to the as-of day is 10%+ (and $1K+) below the same dates in 2025. Seasonality cancels out because both periods cover the same months. In past years, customers 10-15% behind by September ended the year down 83% of the time, so acting early is justified.
@@ -152,7 +152,7 @@ A Streamlit app (`app/app.py`) for salespeople and managers. It does no calculat
 **How the data addresses it:**
 - `int_customer_product_changes`: customer x product, gross profit, units and last price in the prior 12 vs last 12 months. The window logic now lives here once; the brand drops used in Part 2 are a roll-up of it.
 - A product is on the sheet if it was worth $250+ gross profit to the customer a year ago and is down 80%+ (the same rule as brands; about 14 products per flagged customer).
-- `mart_call_sheet` adds our current typical price (all customers, last 12 months) and *available* stock (warehouse minus committed) at the customer's home branch, across all branches, and the branch with the most.
+- `mart_call_sheet` adds our current typical price (all customers, last 12 months), *available* stock (warehouse minus committed) at the customer's home branch, across all branches, and the branch with the most, and a status: *In stock*, *Sold, not in stock*, or *Likely replaced* (nobody bought it in 12 months). Products a rep can sell today come first.
 
 **How a salesperson uses it:** in the app's customer detail, the brands table is clickable. Selecting a brand shows its products on the call sheet; with no brand selected, the sheet shows the customer's top products across all brands. Each sheet downloads as a CSV to take into the call.
 

@@ -175,6 +175,11 @@ models:
           - not_null
           - relationships:
               arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: status
+        description: In stock / Sold, not in stock / Likely replaced (nobody bought it in 12 months).
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['In stock', 'Sold, not in stock', 'Likely replaced']}
       - name: product_rank
-        description: 1 = the product that used to bring in the most gross profit for this customer.
+        description: 1 = first to bring up. Actionable first (in stock, then sold but not on hand), each by past gross profit.
         data_tests: [not_null]
