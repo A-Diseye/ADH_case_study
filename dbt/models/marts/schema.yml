@@ -161,3 +161,20 @@ models:
         data_tests: [not_null]
       - name: is_gone_quiet
         data_tests: [not_null]
+
+  - name: mart_call_sheet
+    description: >
+      Part 4. One row per customer per product they have mostly stopped buying (worth $250+ gross profit a
+      year ago, down 80%+): what they bought and paid before vs now, our current typical price, and
+      available stock at their home branch, all branches and the best branch.
+    columns:
+      - name: call_sheet_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('mart_customers'), field: customer_id}
+      - name: product_rank
+        description: 1 = the product that used to bring in the most gross profit for this customer.
+        data_tests: [not_null]

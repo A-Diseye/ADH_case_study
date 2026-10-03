@@ -89,7 +89,9 @@ Steps:
 - Export the filtered list to CSV for a salesperson.
 
 ## 7. Part 4: win-back call sheet
-For each flagged customer, list the specific products they stopped buying, ranked by the profit they used to generate, with current stock on hand. A salesperson opens the app and sees exactly what to ask the customer about. It reuses the marts, adds a small amount of new logic, and is easy to explain.
+Part 2 tells a rep *who* to call; the call sheet tells them *what to talk about*. In the app's customer detail, the brands table becomes clickable: selecting a brand shows the products in it the customer has mostly stopped buying (worth $250+ gross profit to them in the prior 12 months, down 80%+), ranked by the gross profit they used to bring in, with the price they last paid vs our current typical price, and available stock (customer's home branch, all branches, and the branch with the most). With no brand selected it shows the top products across all brands, downloadable as a CSV. Script: "I saw you stopped buying X; we have 12 in Fayetteville, your home branch."
+
+Models: `int_customer_product_changes` (customer x product, prior 12 vs last 12 months; the window logic lives here once), `int_customer_brand_changes` now sums it up to brand level, and `mart_call_sheet` adds price and stock.
 
 ## 8. Time budget (5 hours max)
 

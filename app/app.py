@@ -180,10 +180,11 @@ with left:
     })
 
 with right:
-    st.markdown("**Brands: last 12 months vs the 12 before** (biggest drops first)")
+    st.markdown("**Brands: last 12 months vs the 12 before** (biggest drops first; click a brand "
+                "to see its products in the call sheet below)")
     # Same model (and the same windows and 80% rule) that writes "Mostly stopped buying" in the reason
     brands = query("""
-        select coalesce(brand_desc, brand) as brand,
+        select brand as brand_code, coalesce(brand_desc, brand) as brand,
                coalesce(gp_prior_12m, 0) as gp_prior_12m,
                coalesce(gp_last_12m, 0) as gp_last_12m,
                case when is_mostly_stopped then '✓' else '' end as mostly_stopped
@@ -192,11 +193,17 @@ with right:
         order by coalesce(gp_last_12m, 0) - coalesce(gp_prior_12m, 0)
         limit 15
     """, (customer_id,))
-    st.dataframe(brands, hide_index=True, width="stretch", column_config={
-        "brand": "Brand", "gp_prior_12m": st.column_config.NumberColumn("GP prior 12m", format="dollar"),
-        "gp_last_12m": st.column_config.NumberColumn("GP last 12m", format="dollar"),
-        "mostly_stopped": "Mostly stopped",
-    })
+    brand_event = st.dataframe(
+        brands, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+        column_order=["brand", "gp_prior_12m", "gp_last_12m", "mostly_stopped"],
+        column_config={
+            "brand": "Brand", "gp_prior_12m": st.column_config.NumberColumn("GP prior 12m", format="dollar"),
+            "gp_last_12m": st.column_config.NumberColumn("GP last 12m", format="dollar"),
+            "mostly_stopped": "Mostly stopped",
+        },
+    )
+    selected_rows = brand_event.selection.rows
+    selected_brand = brands.iloc[selected_rows[0]] if selected_rows else None
 
     st.markdown("**Recent invoices**")
     invoices = query("""
@@ -211,6 +218,45 @@ with right:
         "ship_date": st.column_config.DateColumn("Date"), "invoice_no": "Invoice", "branch": "Branch",
         "lines": "Lines", "sales": st.column_config.NumberColumn("Sales", format="dollar"), "gross_profit": st.column_config.NumberColumn("Gross profit", format="dollar"),
     })
+
+# ---------------------------------------------------------------- Part 4: win-back call sheet
+st.subheader("Call sheet: products to bring up")
+st.caption("Products this customer has mostly stopped buying (worth $250+ gross profit a year ago, down 80% or more), "
+           "biggest first, with what they last paid, our current typical price, and where we have it in stock. "
+           "A blank current price and no stock usually means the product has been replaced by a newer model.")
+sheet_sql = """
+    select product_rank, product_desc, brand_desc, gp_prior_12m, gp_last_12m, avg_units_per_month_before,
+           last_purchase_date, last_unit_price, current_typical_price,
+           available_home_branch, available_all_branches, best_branch, best_branch_available
+    from marts.mart_call_sheet
+    where customer_id = ?
+"""
+if selected_brand is not None:
+    sheet = query(sheet_sql + " and brand = ? order by product_rank", (customer_id, selected_brand["brand_code"]))
+    st.markdown(f"Showing **{selected_brand['brand']}** (click the brand again to clear).")
+else:
+    sheet = query(sheet_sql + " order by product_rank", (customer_id,))
+
+if sheet.empty:
+    st.info("No products this customer has mostly stopped buying" + (" in this brand." if selected_brand is not None else "."))
+else:
+    st.dataframe(sheet.head(10 if selected_brand is None else len(sheet)), hide_index=True, width="stretch", column_config={
+        "product_rank": st.column_config.NumberColumn("#"),
+        "product_desc": "Product", "brand_desc": "Brand",
+        "gp_prior_12m": st.column_config.NumberColumn("GP before (12m)", format="dollar"),
+        "gp_last_12m": st.column_config.NumberColumn("GP now (12m)", format="dollar"),
+        "avg_units_per_month_before": st.column_config.NumberColumn("Units / month before"),
+        "last_purchase_date": st.column_config.DateColumn("Last bought"),
+        "last_unit_price": st.column_config.NumberColumn("Last paid (each)", format="dollar"),
+        "current_typical_price": st.column_config.NumberColumn("Our price now (each)", format="dollar"),
+        "available_home_branch": st.column_config.NumberColumn("Available at their branch"),
+        "available_all_branches": st.column_config.NumberColumn("Available, all branches"),
+        "best_branch": "Most stock at", "best_branch_available": st.column_config.NumberColumn("Qty there"),
+    })
+    st.download_button(
+        "Download call sheet (CSV)", sheet.to_csv(index=False),
+        file_name=f"call_sheet_{customer_id}.csv", mime="text/csv",
+    )
 
 # ---------------------------------------------------------------- reference
 with st.expander("Product type reference (what each product type includes)"):

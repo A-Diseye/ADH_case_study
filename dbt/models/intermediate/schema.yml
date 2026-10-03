@@ -162,3 +162,16 @@ models:
         data_tests: [unique, not_null]
       - name: customer_id
         data_tests: [not_null]
+
+  - name: int_customer_product_changes
+    description: >
+      Customer (group) x product bought in the last 24 months: gross profit, units and last price, prior 12
+      vs last 12 months. is_mostly_stopped = worth opp_min_product_gp a year ago, down 80%+. The window
+      logic lives here; int_customer_brand_changes rolls it up to brands.
+    columns:
+      - name: customer_id
+        data_tests: [not_null]
+      - name: product_id
+        data_tests: [not_null]
+      - name: is_mostly_stopped
+        data_tests: [not_null]

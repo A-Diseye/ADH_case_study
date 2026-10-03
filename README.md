@@ -2,7 +2,7 @@
 
 Turns raw ERP extracts from an HVAC distributor into an analytics foundation, identifies customers with lost sales worth recapturing, and gives salespeople a simple app to act on it.
 
-> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (170+ dbt tests). Part 2 (opportunity model) built. Part 3 (app) built. Sections for Parts 2-4 describe the planned approach.
+> **Status:** Part 1 complete: ingest, staging, intermediate and marts are built and tested (190+ dbt tests). Part 2 (opportunity model) built. Part 3 (app) and Part 4 (win-back call sheet) built. Sections for Parts 2-4 describe the planned approach.
 
 ---
 
@@ -60,13 +60,15 @@ marts schema  ──►  opportunity analysis  ──►  Streamlit app
 | | `int_salespeople` | Salesperson ID mapped to a person, system accounts flagged |
 | | `int_customer_transactions` | Everything that counts towards a customer's sales and gross profit: product lines, invoice corrections (header minus lines) and rebates |
 | | `int_customer_groups` | Every account mapped to its customer (related bill-to accounts are one customer), from a reviewable seed |
-| | `int_customer_brand_changes` | Customer x brand: gross profit prior 12 vs last 12 months; brands they mostly stopped buying (down 80%+) |
+| | `int_customer_product_changes` | Customer x product: gross profit, units and last price, prior 12 vs last 12 months; products they mostly stopped buying |
+| | `int_customer_brand_changes` | Roll-up of the product model to brand level; brands they mostly stopped buying (down 80%+) |
 | | `int_buylines` | Buy-line code with high-confidence near-duplicates mapped |
 | | `int_reporting_dates` | One row: latest date in the data and the rolling 12-month window boundaries |
 | Marts | `mart_sales_detail` | Invoice line (1.06M) plus one non-product row per header-only invoice (3,261); names, categories, line type, revenue / cost / gross profit / margin, charges and adjustments, reconciliation flag |
 | | `mart_customers` | Customer (3,349, incl. never purchased; related bill-to accounts rolled up): recency, last 12 months vs prior 12, lifetime sales and gross profit (incl. invoice corrections and rebates), buying rhythm, average order value, categories bought, charges and adjustments |
 | | `mart_customer_years` | Customer x calendar year (zeros included): full-year sales and gross profit for the trend across complete years, plus same-period (Jan 1 to the as-of day) for judging the unfinished year fairly |
 | | `mart_opportunities` | Part 2: customer, scored and ranked by expected recoverable gross profit, with signals and a plain-English reason |
+| | `mart_call_sheet` | Part 4: customer x product they mostly stopped buying, with last price, current price and available stock by branch |
 | | `mart_products` | SKU (159K): type, brand, sell group, observed price and cost, last-12-month and lifetime sales, stock on hand, active and currently-stocked flags |
 | | `mart_inventory_by_branch` | Product x branch: warehouse, available, consignment stock and bin locations |
 
@@ -141,9 +143,25 @@ A Streamlit app (`app/app.py`) for salespeople and managers. It does no calculat
 |---|---|
 | ![Ranked list](docs/screenshots/ranked_list.png) | ![Customer detail](docs/screenshots/customer_detail.png) |
 
-## Part 4: win-back call sheet *(planned)*
+## Part 4: win-back call sheet
 
-For each flagged customer, list the specific products they stopped buying, ranked by the profit they used to generate, with current stock on hand by branch. A salesperson opens the app and knows exactly what to ask about and whether it can ship today. It reuses the marts with little new logic, and it turns a score into a concrete conversation.
+**What:** Part 2 tells a rep *who* to call; the call sheet tells them *what to talk about*. For each customer, the specific products they have mostly stopped buying, with what they used to buy and pay, our current price, and where we have it in stock.
+
+**Why it is valuable:** a product gap is the most direct sign that business has gone to a competitor, and it turns a score into a concrete conversation: *"I saw you stopped buying the T10 Pro thermostats. You were buying about 7 or 8 a month; we have 3 available in Bogue. Want me to set some aside?"* Reps can act on it immediately, and it shows managers exactly what is being lost, not just how much.
+
+**How the data addresses it:**
+- `int_customer_product_changes`: customer x product, gross profit, units and last price in the prior 12 vs last 12 months. The window logic now lives here once; the brand drops used in Part 2 are a roll-up of it.
+- A product is on the sheet if it was worth $250+ gross profit to the customer a year ago and is down 80%+ (the same rule as brands; about 14 products per flagged customer).
+- `mart_call_sheet` adds our current typical price (all customers, last 12 months) and *available* stock (warehouse minus committed) at the customer's home branch, across all branches, and the branch with the most.
+
+**How a salesperson uses it:** in the app's customer detail, the brands table is clickable. Selecting a brand shows its products on the call sheet; with no brand selected, the sheet shows the customer's top products across all brands. Each sheet downloads as a CSV to take into the call.
+
+**What it revealed:** some of the biggest lost products (e.g. A & L's older ICP heat pumps) have no current price and no stock: nobody has bought them in a year. They have likely been replaced by newer models (the R-454B N5H5 series is now the top seller), so "they stopped buying X" sometimes means "X was superseded".
+
+**What I would build next:**
+- Suggest the replacement product when a lost product has been superseded (map old to new models), and "customers like you also buy" cross-sell items.
+- Log call outcomes (contacted, won back, lost to competitor) so the scoring can learn which opportunities actually convert.
+- Alert the rep when a regular customer misses their usual reorder window, before the gap shows up in monthly numbers.
 
 ## How to run
 
